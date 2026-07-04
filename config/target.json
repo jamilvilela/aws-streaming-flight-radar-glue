@@ -1,0 +1,28 @@
+{
+  "catalog": {
+    "database": "db_raw",
+    "table": "tbl_opensky_flights"
+  },
+  "location": "s3://lakehouse-raw-{account_id}/tables/flights/",
+  "rejected_location": "s3://lakehouse-raw-{account_id}/tables/flights/Rejected/",
+  "format": "parquet",
+  "compression": "snappy",
+  "partition_keys": [
+    {"name": "event_date", "type": "date"}
+  ],
+  "schema": {
+    "icao24":        {"type": "string", "nullable": true},
+    "callsign":      {"type": "string", "nullable": true},
+    "origin_country": {"type": "string", "nullable": true},
+    "latitude":      {"type": "double", "nullable": true},
+    "longitude":     {"type": "double", "nullable": true},
+    "altitude":      {"type": "double", "nullable": true},
+    "velocity":      {"type": "double", "nullable": true},
+    "heading":       {"type": "double", "nullable": true},
+    "last_contact":  {"type": "bigint", "nullable": true},
+    "event_time":    {"type": "string", "nullable": true},
+    "location":      {"type": "string", "nullable": true}
+  },
+  "primary_key": ["icao24", "event_time"],
+  "enum_columns": {}
+}

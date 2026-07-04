@@ -1,0 +1,13 @@
+[
+  {
+    "source": "flights",
+    "source_location": "s3://lakehouse-landing-{account_id}/dms/flightradar/flight_radar/flights/",
+    "format": "parquet",
+    "cdc_config": {
+      "op_column": "Op",
+      "timestamp_column": "dms_timestamp",
+      "delete_strategy": "soft_delete"
+    },
+    "checkpoint_location": "s3://lakehouse-workspace-{account_id}/checkpoints/flights/"
+  }
+]
