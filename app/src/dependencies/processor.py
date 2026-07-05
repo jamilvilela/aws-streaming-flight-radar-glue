@@ -15,12 +15,12 @@ from typing import Optional
 
 from pyspark.sql import DataFrame, SparkSession
 
-from src.config import SourceConfig, TargetConfig
-from src.reader import Reader
-from src.data_quality import DataQuality
-from src.writer import Writer
-from src.etl_control import EtlControl
-from src.quality_metrics import QualityMetrics
+from .config import SourceConfig, TargetConfig
+from .reader import Reader
+from .data_quality import DataQuality
+from .writer import Writer
+from .etl_control import EtlControl
+from .quality_metrics import QualityMetrics
 
 logger = logging.getLogger(__name__)
 
@@ -96,7 +96,7 @@ class Processor:
 
             # 2. Validate
             valid_df, rejects_df = self._data_quality.validate(raw_df, target, source)
-            self._records_rejected = rejects_df.count() if not rejects_df.rdd.isEmpty() else 0
+            self._records_rejected = rejects_df.count() if not rejects_df.isEmpty() else 0
             self._records_written = (valid_df.count() if not self._is_streaming(valid_df)
                                      else max(0, self._records_read - self._records_rejected))
             logger.info(

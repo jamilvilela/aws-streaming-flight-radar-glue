@@ -1,7 +1,7 @@
 ---
 id: plan-glue-streaming-dms-cdc
 title: Plano de Implementação — Glue Job Streaming Mini-Batch (tbl_opensky_flights)
-status: completed
+status: migrated-to-delta
 version: 3.0
 created: 2026-06-29
 updated: 2026-07-02
@@ -10,38 +10,43 @@ author: Data Engineering Team
 
 # Plano de Implementação
 
-> Gerado a partir de `spec.md`. Status: **implementado**.
+> Gerado a partir de `spec.md`. Status: **migrado para Delta Lake**.
 
 ## Estrutura do Projeto
 
 ```
-src/
-├── main.py              # Entry point do Glue Job (argparse, --conf dinâmico)
-├── processor.py         # Orquestrador (Processor) — delega EtlControl/QualityMetrics
-├── config.py            # Leitor de configuração (Config) c/ dataclasses
-├── reader.py            # Leitor de dados streaming-only (Reader)
-├── data_quality.py      # Validação e qualidade (DataQuality) — 5 etapas
-├── writer.py            # Escrita no Data Lake (Writer)
-├── etl_control.py       # Registro de execução em etl_control
-└── quality_metrics.py   # Métricas de qualidade em data_quality_metrics
-config/
-├── origins.json         # Configuração da origem DMS (conexão)
-└── target.json          # Configuração do target (schema, partições, PK)
-tests/
-├── __init__.py
-├── unit/
+app/
+├── src/
+│   ├── main.py              # Entry point do Glue Job (argparse, --conf dinâmico)
 │   ├── __init__.py
-│   ├── test_config.py
-│   ├── test_reader.py
-│   ├── test_data_quality.py
-│   ├── test_writer.py
-│   └── test_processor.py
-└── integration/
+│   └── dependencies/        # Módulos de suporte (empacotados como helpers.zip)
+│       ├── __init__.py
+│       ├── config/          # Dataclasses de configuração + JSONs (subpacote)
+│       │   ├── __init__.py  #   → Config, SourceConfig, TargetConfig, etc.
+│       │   ├── origins.json #   → Configuração da origem DMS (conexão)
+│       │   └── target.json  #   → Configuração do target (schema, partições, PK)
+│       ├── reader.py        # Leitor de dados streaming-only (Reader)
+│       ├── data_quality.py  # Validação e qualidade (DataQuality) — 4 etapas
+│       ├── writer.py        # Escrita no Data Lake (Writer) — Delta Lake
+│       ├── processor.py     # Orquestrador (Processor)
+│       ├── etl_control.py   # Registro de execução em etl_control
+│       └── quality_metrics.py # Métricas de qualidade em data_quality_metrics
+└── tests/                    # Testes unitários e de integração
     ├── __init__.py
-    ├── conftest.py       # Fixtures boto3 (S3, Glue)
-    ├── test_s3_landing.py
-    ├── test_glue_catalog.py
-    └── test_pipeline_e2e.py
+    ├── conftest.py            # Adiciona app/ ao sys.path
+    ├── unit/
+    │   ├── __init__.py
+    │   ├── test_config.py
+    │   ├── test_reader.py
+    │   ├── test_data_quality.py
+    │   ├── test_writer.py
+    │   └── test_processor.py
+    └── integration/
+        ├── __init__.py
+        ├── conftest.py
+        ├── test_s3_landing.py
+        ├── test_glue_catalog.py
+        └── test_pipeline_e2e.py
 infra/                     # Módulo Terraform completo
 ├── main.tf               # Recursos: Glue job, KMS, Security Config, Connection, Upload
 ├── variables.tf          # Variáveis de entrada
@@ -68,7 +73,7 @@ docs-sdd/
 
 ## Configuração (JSON)
 
-### `config/origins.json` — Origem DMS (conexão)
+### `app/src/dependencies/config/origins.json` — Origem DMS (conexão)
 ```json
 [{
   "source": "flights",
@@ -79,13 +84,13 @@ docs-sdd/
 }]
 ```
 
-### `config/target.json` — Destino (schema, partições, PK)
+### `app/src/dependencies/config/target.json` — Destino (schema, partições, PK)
 ```json
 {
   "catalog": { "database": "db_raw", "table": "tbl_opensky_flights" },
   "location": "s3://lakehouse-raw-{account_id}/tables/opensky/flights/",
   "rejected_location": "s3://lakehouse-landing-{account_id}/dms/flightradar/flight_radar/Rejected/",
-  "format": "parquet",
+  "format": "delta",
   "compression": "snappy",
   "partition_keys": [{ "name": "event_date", "type": "date" }],
   "schema": [
@@ -99,9 +104,11 @@ docs-sdd/
     { "name": "heading", "type": "double", "comment": "Direção em graus" },
     { "name": "last_contact", "type": "bigint", "comment": "Último contato (epoch)" },
     { "name": "event_time", "type": "string", "comment": "Horário do evento" },
-    { "name": "location", "type": "string", "comment": "Localização" }
+    { "name": "location", "type": "string", "comment": "Localização" },
+    { "name": "cod_unico", "type": "string", "comment": "Concatenação da PK (icao24_event_time)" }
   ],
   "primary_key": ["icao24", "event_time"],
+  "cod_unico_expr": { "columns": ["icao24", "event_time"], "separator": "_" },
   "enum_columns": {}
 }
 ```
@@ -117,7 +124,7 @@ docs-sdd/
 | `PartitionKey` | name, type |
 | `CdcConfig` | op_column, timestamp_column, order |
 | `SourceConfig` | source, source_location, format, cdc_config, checkpoint_location |
-| `TargetConfig` | catalog, location, rejected_location, format, compression, partition_keys, schema, primary_key, enum_columns |
+| `TargetConfig` | catalog, location, rejected_location, format, compression, partition_keys, schema, primary_key, enum_columns, cod_unico_expr |
 | `Config` | from_files(), from_s3(), to_dict() |
 
 ### `reader.py` — Classe Reader (streaming-only)
@@ -126,20 +133,23 @@ docs-sdd/
 - `cleanSource=archive`, `includeExistingFiles=true`
 - Checkpoint em `source.checkpoint_location`
 
-### `data_quality.py` — Classe DataQuality (5 etapas)
+### `data_quality.py` — Classe DataQuality (4 etapas)
 | Etapa | Método | Descrição |
 |-------|--------|-----------|
 | 1 | `_cast_types` | Converte colunas para tipos do target schema |
 | 2 | `_check_nulls` | Remove registros com nulos em campos obrigatórios |
 | 3 | `_check_enums` | Valida contra lista permitida em `enum_columns` |
-| 4 | `_remove_duplicates` | Dedup por `primary_key` com `row_number()` + CDC order |
-| 5 | `_validate_timestamps` | Pass-through (reservado) |
+| 4 | `_validate_timestamps` | Pass-through (reservado) |
+
+> **Nota:** A etapa `_remove_duplicates` foi removida — a unicidade é garantida pelo Delta MERGE na escrita (Writer).
 
 ### `writer.py` — Classe Writer
-- Escrita Parquet + Snappy com `partitionBy`
+- Escrita **Delta Lake** com `DeltaTable.forName()` via Glue Catalog
+- Gera `cod_unico` via `F.concat_ws("_", *pk_cols)` para chave do merge
 - Deriva `event_date` via `F.to_date()`
-- `write_rejects()` com metadados `_reject_table`, `_reject_rule`, `_reject_timestamp`
-- `compact()` para coalescer small files
+- MERGE: `WHEN NOT MATCHED THEN INSERT` / `WHEN MATCHED THEN UPDATE`
+- **Sem compaction manual** — Delta gerencia via auto-optimize
+- `write_rejects()` com metadados `_reject_table`, `_reject_rule`, `_reject_timestamp` (formato Parquet)
 
 ### `etl_control.py` — Classe EtlControl
 - Método `register()` escreve em `etl_control`
@@ -152,15 +162,13 @@ docs-sdd/
 - Schema: rows_read, rows_written, rows_rejected, pipeline_status
 
 ### `processor.py` — Classe Processor
-- Pipeline de 8 etapas no método `run(source, target)`:
+- Pipeline de 6 etapas no método `run(source, target)`:
   1. Load configs (origins + target) via `Config`
   2. Read streaming via `Reader`
-  3. Validate via `DataQuality`
-  4. Write valid data via `Writer`
-  5. Write rejects via `Writer.write_rejects()`
-  6. Register execution via `EtlControl`
-  7. Save quality metrics via `QualityMetrics`
-  8. Logging
+  3. Validate via `DataQuality` (4 etapas — sem dedup)
+  4. Write rejects via `Writer.write_rejects()`
+  5. Write valid data via `Writer` (Delta MERGE por PK)
+  6. Register execution via `EtlControl` + Save quality metrics via `QualityMetrics`
 
 ### `main.py` — Entry Point
 - Parse de argumentos via `argparse`: `--origins_s3_path`, `--target_s3_path`, `--conf`
@@ -180,7 +188,7 @@ docs-sdd/
 | `aws_glue_security_configuration.glue` | Security Config | CloudWatch SSE-KMS, bookmarks CSE-KMS, S3 SSE-KMS |
 | `aws_glue_connection.vpc` | Glue Connection | NETWORK, subnet privada, SG default |
 | `aws_glue_job.streaming_minibatch_dms` | Glue Job | Glue 5.1, Python 3.10, G.1X, 2 workers |
-| `null_resource.upload_artifacts` | Null Resource | Upload scripts + configs para S3 via local-exec |
+| `data.archive_file.helpers` + `aws_s3_object.*` | Archive + S3 Objects | Declarativo — helpers.zip + main.py + configs JSON |
 
 ### Spark Configs (--conf)
 
@@ -194,7 +202,7 @@ Definidas em `locals.tf` como `spark_properties` e convertidas em string `spark_
 
 | Script | Funcionalidade |
 |--------|---------------|
-| `scripts/setup-env.sh` | Terraform init/apply + upload de artefatos via `null_resource.upload_artifacts` |
+| `scripts/setup-env.sh` | Terraform init/apply + upload de artefatos via `aws_s3_object` |
 | `scripts/rollback-setup.sh` | Terraform destroy **sem** limpeza de S3 |
 
 ## Cronograma (Executado)
@@ -211,8 +219,8 @@ Definidas em `locals.tf` como `spark_properties` e convertidas em string `spark_
 
 | # | Entregável | Status |
 |---|-----------|--------|
-| 1 | `src/main.py` + 7 módulos (dataclasses, type hints, pure Spark) | ✅ |
-| 2 | `config/origins.json` + `config/target.json` (configs separadas) | ✅ |
+| 1 | `app/src/main.py` + 7 módulos em `app/src/dependencies/` (config/ é subpacote) | ✅ |
+| 2 | `app/src/dependencies/config/origins.json` + `app/src/dependencies/config/target.json` (configs separadas) | ✅ |
 | 3 | `infra/` módulo Terraform completo (Glue Job, KMS, Security Config, Connection, Upload) | ✅ |
 | 4 | `tests/unit/` (100% cobertura) | ✅ |
 | 5 | `tests/integration/` (boto3) | ✅ |

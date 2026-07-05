@@ -15,11 +15,6 @@ import pytest
 class TestGlueCatalogDatabases:
     """Validate Glue Catalog databases."""
 
-    def test_db_landing_exists(self, glue_client):
-        """The 'db_landing' database must exist."""
-        response = glue_client.get_database(Name="db_landing")
-        assert response["Database"]["Name"] == "db_landing"
-
     def test_db_raw_exists(self, glue_client):
         """The 'db_raw' database must exist."""
         response = glue_client.get_database(Name="db_raw")
@@ -28,44 +23,21 @@ class TestGlueCatalogDatabases:
 
 @pytest.mark.integration
 class TestGlueCatalogTables:
-    """Validate Glue Catalog tables in db_landing and db_raw."""
+    """Validate Glue Catalog tables in db_raw."""
 
-    def test_flights_table_exists_in_landing(self, glue_client):
-        """The 'flights' table must exist in db_landing."""
+    def test_tbl_opensky_flights_exists(self, glue_client):
+        """The 'tbl_opensky_flights' table must exist in db_raw."""
         response = glue_client.get_table(
-            DatabaseName="db_landing",
-            Name="flights",
+            DatabaseName="db_raw",
+            Name="tbl_opensky_flights",
         )
-        assert response["Table"]["Name"] == "flights"
+        assert response["Table"]["Name"] == "tbl_opensky_flights"
 
-    def test_flights_has_cdc_params(self, glue_client):
-        """The flights table should have CDC-related parameters."""
+    def test_tbl_opensky_flights_has_columns(self, glue_client):
+        """The tbl_opensky_flights table should have the expected columns."""
         response = glue_client.get_table(
-            DatabaseName="db_landing",
-            Name="flights",
-        )
-        params = response["Table"].get("Parameters", {})
-        cdc_source = params.get("cdc.source", "")
-        assert cdc_source == "dms", f"Expected cdc.source=dms, got {cdc_source}"
-
-    def test_flights_has_partitions(self, glue_client):
-        """The flights table should be partitioned."""
-        response = glue_client.get_table(
-            DatabaseName="db_landing",
-            Name="flights",
-        )
-        partition_keys = response["Table"].get("PartitionKeys", [])
-        assert len(partition_keys) > 0, "flights table has no partition keys"
-        key_names = [pk["Name"] for pk in partition_keys]
-        assert "year" in key_names, "year partition not found"
-        assert "month" in key_names, "month partition not found"
-        assert "day" in key_names, "day partition not found"
-
-    def test_flights_has_columns(self, glue_client):
-        """The flights table should have the expected columns."""
-        response = glue_client.get_table(
-            DatabaseName="db_landing",
-            Name="flights",
+            DatabaseName="db_raw",
+            Name="tbl_opensky_flights",
         )
         sd = response["Table"].get("StorageDescriptor", {})
         columns = sd.get("Columns", [])

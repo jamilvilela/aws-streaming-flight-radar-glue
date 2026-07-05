@@ -8,8 +8,8 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from src.config import CdcConfig, SourceConfig
-from src.reader import Reader, ReaderError
+from src.dependencies.config import CdcConfig, SourceConfig
+from src.dependencies.reader import Reader, ReaderError
 
 
 @pytest.fixture

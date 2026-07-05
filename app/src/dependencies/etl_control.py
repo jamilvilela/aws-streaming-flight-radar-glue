@@ -11,7 +11,7 @@ from typing import Optional
 
 from pyspark.sql import SparkSession
 
-from src.config import TargetConfig
+from .config import TargetConfig
 
 logger = logging.getLogger(__name__)
 

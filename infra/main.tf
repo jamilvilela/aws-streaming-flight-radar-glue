@@ -117,8 +117,8 @@ resource "aws_glue_job" "streaming_minibatch_dms" {
     "--enable-continuous-cloudwatch-log" = "true"
 
     # Job configuration
-    "--config_s3_path"        = local.config_s3_path
-    "--source"                = "flights"
+    "--origins_s3_path"       = local.origins_s3_path
+    "--target_s3_path"        = local.target_s3_path
     "--extra-py-files"        = local.extra_py_files
 
     # Spark configs passed via --conf (parsed dynamically by main.py)
@@ -137,44 +137,48 @@ resource "aws_glue_job" "streaming_minibatch_dms" {
   })
 }
 
-# ── S3 Artifact Upload (via Terraform) ──────────────────────────────────────
-# Uploads Python scripts and JSON configs to the workspace bucket on apply.
-# Uses null_resource with local-exec so files are synced without managing
-# individual aws_s3_object resources.
+# ── Archive (helpers.zip) ──────────────────────────────────────────────────
+# Creates a zip of the dependencies directory using hashicorp/archive provider.
 
-resource "null_resource" "upload_artifacts" {
-  triggers = {
-    main_py_hash       = filesha1("${path.module}/../src/main.py")
-    processor_py_hash  = filesha1("${path.module}/../src/processor.py")
-    config_py_hash     = filesha1("${path.module}/../src/config.py")
-    reader_py_hash     = filesha1("${path.module}/../src/reader.py")
-    quality_py_hash    = filesha1("${path.module}/../src/data_quality.py")
-    writer_py_hash     = filesha1("${path.module}/../src/writer.py")
-    etl_control_hash   = filesha1("${path.module}/../src/etl_control.py")
-    quality_metrics_hash = filesha1("${path.module}/../src/quality_metrics.py")
-    origins_hash       = filesha1("${path.module}/../config/origins.json")
-    target_hash        = filesha1("${path.module}/../config/target.json")
-  }
+data "archive_file" "helpers" {
+  type        = "zip"
+  source_dir  = "${path.module}/../app/src/dependencies/"
+  output_path = "${path.module}/../.terraform/helpers.zip"
+  excludes    = ["__pycache__", "*.pyc"]
+}
 
-  provisioner "local-exec" {
-    command = <<EOT
-      # Sync Python scripts
-      aws s3 sync ${path.module}/../src/ s3://${local.buckets.workspace}/scripts/glue-streaming-minibatch-dms/ \
-        --exclude "*.pyc" --exclude "__pycache__/*"
+# ── S3 Artifact Upload ─────────────────────────────────────────────────────
+# Uploads scripts, dependencies, and configs to the workspace bucket
+# using declarative aws_s3_object resources.
 
-      # Upload origins.json with account_id resolved
-      sed "s/{account_id}/${local.account_id}/g" ${path.module}/../config/origins.json > /tmp/origins-resolved.json
-      aws s3 cp /tmp/origins-resolved.json s3://${local.buckets.workspace}/config/origins.json
-      rm -f /tmp/origins-resolved.json
+resource "aws_s3_object" "main_py" {
+  bucket       = local.buckets.workspace
+  key          = "scripts/glue-streaming-minibatch-dms/main.py"
+  source       = "${path.module}/../app/src/main.py"
+  source_hash  = filemd5("${path.module}/../app/src/main.py")
+  tags         = local.common_tags
+}
 
-      # Upload target.json with account_id resolved
-      sed "s/{account_id}/${local.account_id}/g" ${path.module}/../config/target.json > /tmp/target-resolved.json
-      aws s3 cp /tmp/target-resolved.json s3://${local.buckets.workspace}/config/target.json
-      rm -f /tmp/target-resolved.json
+resource "aws_s3_object" "helpers_zip" {
+  bucket       = local.buckets.workspace
+  key          = "dependencies/helpers.zip"
+  source       = data.archive_file.helpers.output_path
+  source_hash  = data.archive_file.helpers.output_md5
+  tags         = local.common_tags
+}
 
-      echo "Artifacts uploaded to s3://${local.buckets.workspace}/"
-    EOT
-  }
+resource "aws_s3_object" "origins_json" {
+  bucket       = local.buckets.workspace
+  key          = "config/origins.json"
+  content      = replace(file("${path.module}/../app/src/dependencies/config/origins.json"), "{account_id}", local.account_id)
+  content_type = "application/json"
+  tags         = local.common_tags
+}
 
-  depends_on = [aws_glue_job.streaming_minibatch_dms]
+resource "aws_s3_object" "target_json" {
+  bucket       = local.buckets.workspace
+  key          = "config/target.json"
+  content      = replace(file("${path.module}/../app/src/dependencies/config/target.json"), "{account_id}", local.account_id)
+  content_type = "application/json"
+  tags         = local.common_tags
 }

@@ -3,7 +3,7 @@ name: glue-streaming-minibatch-dms-cdc
 description: >-
   Criação de Glue Job streaming mini-batch para ingestão de dados CDC do AWS DMS
   (entidade tbl_opensky_flights), com leitura em S3, validação de qualidade e escrita no
-  Data Lake (camada raw).
+  Data Lake (camada raw) em formato Delta Lake com MERGE para dedup cross-batch.
 ---
 
 # Skill: Glue Streaming Mini-Batch com DMS CDC
@@ -18,7 +18,7 @@ Implementar um job **AWS Glue 5.1 (PySpark 4.0)** para processar dados de **CDC 
 | AWS Glue | **5.1** |
 | Apache Spark | **4.0** |
 | Python | **3.10+** |
-| Formato | Parquet + Snappy |
+| Formato | **Delta Lake** (target) / Parquet (rejects) |
 | Testes | pytest + boto3 (integração) |
 | APIs Glue | **NÃO utilizadas** (pure Spark) |
 
@@ -34,16 +34,16 @@ S3 Landing (DMS Parquet — tbl_opensky_flights/)
          │ DataFrame bruto
          ▼
    ┌───────────┐
-   │ DataQuality│ (cleansing, validação de schema, rejects)
+   │ DataQuality│ (cleansing, validação de schema, rejects — 4 etapas)
    └─────┬─────┘
          │ DataFrame validado
          ▼
    ┌──────────┐
-   │  Writer   │ (escrita raw em Parquet + partições)
+   │  Writer   │ (Delta MERGE por PK composta + partições)
    └─────┬────┘
          │
          ▼
-   S3 Raw (tabela Glue Catalog — tbl_opensky_flights)
+   S3 Raw (Delta table — tbl_opensky_flights)
 
    ┌──────────────┐
    │  EtlControl   │  ← registro de cada execução (classe separada)
@@ -63,7 +63,7 @@ O módulo Terraform em `infra/` gerencia todos os recursos AWS necessários:
 | `aws_glue_security_configuration.glue` | Security config (CloudWatch, bookmarks, S3) |
 | `aws_glue_connection.vpc` | Conexão VPC (subnet privada, security group default) |
 | `aws_glue_job.streaming_minibatch_dms` | Glue job (Glue 5.1, Spark 4.0, Python 3.10) |
-| `null_resource.upload_artifacts` | Upload de scripts Python e configs JSON para S3 |
+| `data.archive_file.helpers` + `aws_s3_object.*` | Cria helpers.zip e faz upload declarativo de scripts + configs para S3 |
 
 > ⚠️ Databases e tabelas Glue Catalog não são gerenciados por este módulo — já existem no Data Lake.
 
@@ -86,7 +86,7 @@ Data sources: IAM role `role-datalake-analytics`, default VPC, subnets, security
 - Lê **dois** arquivos JSON separados: `origins.json` (conexão origem DMS) e `target.json` (schema destino)
 - Utiliza **dataclasses** do Python para modelar `SourceConfig` e `TargetConfig`
 - `SourceConfig`: `source`, `source_location`, `format`, `cdc_config`, `checkpoint_location`
-- `TargetConfig`: `catalog` (database, table), `location`, `rejected_location`, `format`, `compression`, `partition_keys`, `schema`, `primary_key`, `enum_columns`
+- `TargetConfig`: `catalog` (database, table), `location`, `rejected_location`, `format`, `compression`, `partition_keys`, `schema`, `primary_key`, `enum_columns`, `cod_unico_expr` (expressão para gerar `cod_unico` via concatenação da PK)
 - Métodos `from_files()` (local) e `from_s3()` (S3)
 
 ### 3. `Reader` — Leitura dos Dados (streaming-only)
@@ -99,23 +99,24 @@ Data sources: IAM role `role-datalake-analytics`, default VPC, subnets, security
 
 ### 4. `data_quality.py` — Qualidade e Validação
 - Recebe DataFrame bruto e schema alvo (do `TargetConfig`)
-- Pipeline de 5 etapas:
+- Pipeline de 4 etapas:
   1. **Cast de tipos** — converte colunas conforme schema do target
   2. **Null check** — filtra nulos em campos NOT NULL
   3. **Enum validation** — valida valores de `enum_columns`
-  4. **Duplicate removal** — dedup por `primary_key` usando `row_number()` + `cdc_config.order`
-  5. **Timestamp validation** — valida timestamps (pass-through)
+  4. **Timestamp validation** — valida timestamps (pass-through)
+- **Sem dedup explícito** — a unicidade é garantida pelo Delta MERGE na escrita (Writer)
 - Registros **inválidos** são escritos em `Rejected/` com metadados (`_reject_table`, `_reject_rule`, `_reject_timestamp`)
 - Retorna tuple: `(DataFrame válido, DataFrame rejects)`
 - **Funcionamento dinâmico**: lê o schema do JSON de configuração, permitindo validar qualquer origem sem alteração de código
 
-### 5. `writer.py` — Escrita no Data Lake
+### 5. `writer.py` — Escrita no Data Lake (Delta Lake)
 - Recebe DataFrame válido e metadados da tabela alvo
-- Escreve no formato **Parquet + Snappy** no bucket **raw**
+- Gera coluna `cod_unico` via `F.concat_ws("_", *pk_cols)` para a chave de merge
+- Escreve no formato **Delta Lake** no bucket **raw**
+- Usa **Delta MERGE** (`DeltaTable.forName().merge()`) via Glue Catalog com base na PK composta para garantir unicidade cross-batch
 - Particiona os dados por `event_date` (derivado de coluna timestamp via `F.to_date()`)
-- Usa `mode = append` para dados incrementais
-- Implementa **compaction** para coalescer small files
-- Suporta escrita de rejects com `write_rejects()`
+- **Sem necessidade de compaction** — Delta Lake gerencia otimização automaticamente via `OPTIMIZE` e auto-compact
+- Suporta escrita de rejects com `write_rejects()` (formato Parquet)
 
 ### 6. `etl_control.py` — Registro de Execução
 - Classe separada responsável por escrever metadados na tabela `etl_control`
@@ -129,7 +130,7 @@ Data sources: IAM role `role-datalake-analytics`, default VPC, subnets, security
 
 ### 8. `processor.py` — Orquestrador
 - Coordena o pipeline completo: Config → Reader → DataQuality → Writer → EtlControl → QualityMetrics
-- Método `run(source, target)` executa 8 etapas sequenciais
+- Método `run(source, target)` executa pipeline com 6 etapas: Read → Validate → Write Rejects → Write (Delta MERGE) → Register → Metrics
 - Delega `_register_execution` ao `EtlControl` e `_save_quality_metrics` ao `QualityMetrics`
 
 ## Spark Configs de Otimização
@@ -154,8 +155,8 @@ As configurações Spark são definidas em `infra/locals.tf` no mapa `spark_prop
 
 | Camada | Bucket | Database | Formato |
 |--------|--------|----------|---------|
-| Landing | `lakehouse-landing-{account_id}` | `db_landing` | Parquet (DMS) |
-| Raw | `lakehouse-raw-{account_id}` | `db_raw` | Parquet + Snappy |
+| Landing | `lakehouse-landing-{account_id}` | — | Parquet (DMS) |
+| Raw | `lakehouse-raw-{account_id}` | `db_raw` | **Delta Lake** (target) / Parquet (rejects) |
 | Workspace | `lakehouse-workspace-{account_id}` | — | Scripts, configs, checkpoints |
 
 ## Tabelas Envolvidas

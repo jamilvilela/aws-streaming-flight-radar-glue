@@ -26,8 +26,8 @@
 
 ## 4 Modelagem e Boas Práticas
 - **Particionamento:** `ingestion_date` e `event_date`.  
-- **Formato:** **Parquet** + **Snappy**.  
-- **Práticas:** partition pruning, compaction periódica, small-file mitigation.
+- **Formato:** **Parquet** + **Snappy** (batch) / **Delta Lake** (streaming CDC).  
+- **Práticas:** partition pruning, compaction periódica, small-file mitigation, Delta MERGE para dedup cross-batch.
 
 **Exemplo DDL (Gold)**
 ```sql
@@ -46,15 +46,30 @@ STORED AS PARQUET;
 
 ## 5 Exemplos de Job Glue (PySpark)
 ```python
-from awsglue.context import GlueContext
-from pyspark.context import SparkContext
-sc = SparkContext()
-glue = GlueContext(sc)
-df = glue.spark_session.read.parquet("s3://bucket/bronze/events/")
-df_clean = df.dropDuplicates(["event_id"]).filter("event_time IS NOT NULL")
-df_clean.write.mode("overwrite").parquet("s3://bucket/silver/events/")
+from pyspark.sql import SparkSession
+
+spark = SparkSession.builder \
+    .appName("streaming-minibatch-dms") \
+    .config("spark.sql.adaptive.enabled", "true") \
+    .getOrCreate()
+
+df = spark.readStream.format("parquet") \
+    .option("maxFilesPerTrigger", 1) \
+    .load("s3://bucket/landing/flights/")
+
+def write_batch(df, epoch_id):
+    df.write.format("delta") \
+        .mode("append") \
+        .save("s3://bucket/raw/flights/")
+
+df.writeStream \
+    .trigger(processingTime="60 seconds") \
+    .foreachBatch(write_batch) \
+    .option("checkpointLocation", "s3://bucket/checkpoints/flights/") \
+    .start() \
+    .awaitTermination()
 ```
-**Idempotência:** usar `event_id` + watermark; escrever por partição com `overwrite` por partition.
+**Idempotência:** usar Delta MERGE com base na PK composta para garantir unicidade cross-batch (sem necessidade de `dropDuplicates`).
 
 ## 6 Orquestração e Observabilidade
 - **Orquestração:** Airflow (DAGs), EventBridge, Step Functions.  

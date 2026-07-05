@@ -29,7 +29,7 @@ variable "databases" {
     business = string
   })
   default = {
-    landing  = "db_landing"
+    landing  = ""
     raw      = "db_raw"
     trusted  = "db_trusted"
     business = "db_business"
@@ -110,8 +110,14 @@ variable "glue_extra_py_files" {
   default     = ""
 }
 
-variable "glue_config_s3_path" {
+variable "glue_origins_s3_path" {
   description = "S3 path to the origins.json config file"
+  type        = string
+  default     = ""
+}
+
+variable "glue_target_s3_path" {
+  description = "S3 path to the target.json config file"
   type        = string
   default     = ""
 }

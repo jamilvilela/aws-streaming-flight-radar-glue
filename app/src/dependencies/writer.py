@@ -1,17 +1,18 @@
 """
 Writer module — Writes validated DataFrames to the raw Data Lake layer
-in Parquet + Snappy format, with dynamic partitioning and optional compaction.
+in Delta Lake format with MERGE for cross-batch dedup.
 """
 
 from __future__ import annotations
 
 import logging
-from typing import Optional
+from typing import Any, Dict, Optional
 
+from delta.tables import DeltaTable
 from pyspark.sql import DataFrame, SparkSession
 from pyspark.sql import functions as F
 
-from src.config import SourceConfig, TargetConfig
+from .config import SourceConfig, TargetConfig
 
 logger = logging.getLogger(__name__)
 
@@ -23,14 +24,14 @@ class WriterError(Exception):
 
 class Writer:
     """
-    Writes validated DataFrames to the raw S3 bucket.
+    Writes validated DataFrames to the raw S3 bucket (Delta Lake).
 
     Features:
-    - Dynamic partitioning by year/month/day from dms_timestamp
-    - Parquet + Snappy format
-    - Append mode for incremental data
-    - Compaction to mitigate small files
-    - Rejects writing with metadata
+    - Delta Lake format with MERGE (insert/update) by primary key
+    - Automatic generation of cod_unico from PK columns
+    - Dynamic partitioning by event_date
+    - Rejects writing with metadata (Parquet format)
+    - No manual compaction needed — Delta handles via auto-optimize
     """
 
     def __init__(self, spark: SparkSession):
@@ -40,42 +41,51 @@ class Writer:
 
     def write(self, df: DataFrame, target: TargetConfig, source: Optional[SourceConfig] = None) -> None:
         """
-        Write a validated DataFrame to the target raw location.
+        Write a validated DataFrame using Delta MERGE via Glue Catalog.
 
-        Automatically extracts partition columns from dms_timestamp
-        and writes in Parquet + Snappy format.
+        Automatically generates ``cod_unico`` from primary key columns
+        (via ``cod_unico_expr`` or by concatenating PK columns with "_"),
+        then performs a Delta MERGE using the table name resolved through
+        the **Glue Catalog** (``DeltaTable.forName``):
+          - ``WHEN NOT MATCHED THEN INSERT`` — new records
+          - ``WHEN MATCHED THEN UPDATE SET *`` — existing records updated
+
+        The target table (``{database}.{table}``) must already exist in
+        the Glue Catalog — it is a prerequisite and is NOT created here.
 
         Args:
             df: Validated DataFrame to write.
-            target: TargetConfig with location, partition_keys, compression.
+            target: TargetConfig with catalog (database, table), location,
+                    partition_keys, primary_key, cod_unico_expr.
             source: Optional SourceConfig for CDC timestamp resolution.
         """
-        if df.rdd.isEmpty():
+        if df.isEmpty():
             logger.info("Empty DataFrame — nothing to write for %s", target.table)
             return
 
-        df_to_write = self._prepare_with_partitions(df, target, source)
+        df_with_pk = self._generate_cod_unico(df, target)
+        df_to_write = self._prepare_with_partitions(df_with_pk, target, source)
 
+        table_name = f"{target.database}.{target.table}"
         partition_cols = [pk.name for pk in target.partition_keys if pk.name in df_to_write.columns]
 
         try:
-            (
-                df_to_write
-                .write
-                .mode("append")
-                .format(target.format)
-                .partitionBy(*partition_cols)
-                .option("compression", target.compression)
-                .save(target.location)
-            )
-            logger.info(
-                "Wrote %d rows to %s (partitions: %s)",
-                df_to_write.count(),
-                target.location,
-                partition_cols,
-            )
+            delta_table = DeltaTable.forName(self._spark, table_name)
+
+            merge_condition = "source.cod_unico = target.cod_unico"
+
+            (delta_table.alias("target")
+             .merge(df_to_write.alias("source"), merge_condition)
+             .whenNotMatchedInsertAll()
+             .whenMatchedUpdateAll()
+             .execute())
+
+            logger.info("Delta MERGE completed for %s (via Glue Catalog)", table_name)
+
         except Exception as exc:
-            raise WriterError(f"Failed to write to {target.location}: {exc}") from exc
+            raise WriterError(
+                f"Failed to merge into Delta table {table_name} at {target.location}: {exc}"
+            ) from exc
 
     def write_rejects(self, df: DataFrame, target: TargetConfig) -> None:
         """
@@ -85,7 +95,7 @@ class Writer:
             df: Rejected DataFrame (with _reject_* metadata columns).
             target: TargetConfig with rejected_location.
         """
-        if df.rdd.isEmpty():
+        if df.isEmpty():
             logger.info("No rejected records for %s", target.table)
             return
 
@@ -102,55 +112,34 @@ class Writer:
         except Exception as exc:
             raise WriterError(f"Failed to write rejects to {target.rejected_location}: {exc}") from exc
 
-    def compact(
-        self,
-        target: TargetConfig,
-        max_files_per_partition: int = 1,
-    ) -> None:
-        """
-        Compact small Parquet files in the target location.
-
-        Reads existing data, coalesces, and overwrites the partition(s).
-        Use periodically to mitigate the small-files problem.
-
-        Args:
-            target: TargetConfig with location and partition_keys.
-            max_files_per_partition: Target max number of files per partition.
-        """
-        try:
-            df = (
-                self._spark.read
-                .format(target.format)
-                .load(target.location)
-            )
-            if df.rdd.isEmpty():
-                logger.info("No data to compact in %s", target.location)
-                return
-
-            partition_cols = [pk.name for pk in target.partition_keys if pk.name in df.columns]
-
-            num_partitions = df.rdd.getNumPartitions()
-            target_partitions = max(num_partitions // 2, max_files_per_partition)
-
-            (
-                df.coalesce(target_partitions)
-                .write
-                .mode("overwrite")
-                .format(target.format)
-                .partitionBy(*partition_cols)
-                .option("compression", target.compression)
-                .save(target.location)
-            )
-            logger.info(
-                "Compaction completed for %s (%d → %d partitions)",
-                target.location,
-                num_partitions,
-                target_partitions,
-            )
-        except Exception as exc:
-            raise WriterError(f"Compaction failed for {target.location}: {exc}") from exc
-
     # ── Internal helpers ─────────────────────────────────────────────
+
+    @staticmethod
+    def _generate_cod_unico(df: DataFrame, target: TargetConfig) -> DataFrame:
+        """
+        Generate the ``cod_unico`` column by concatenating primary key columns.
+
+        Uses ``cod_unico_expr`` from TargetConfig if available, otherwise
+        concatenates primary key columns with "_" separator.
+        """
+        if "cod_unico" in df.columns:
+            return df
+
+        # Determine PK columns and separator
+        expr_config: Optional[Dict[str, Any]] = target.cod_unico_expr
+        if expr_config:
+            pk_cols = expr_config.get("columns", target.primary_key)
+            separator = expr_config.get("separator", "_")
+        else:
+            pk_cols = target.primary_key
+            separator = "_"
+
+        pk_cols_in_df = [c for c in pk_cols if c in df.columns]
+        if not pk_cols_in_df:
+            logger.warning("No PK columns found in DataFrame for cod_unico generation")
+            return df
+
+        return df.withColumn("cod_unico", F.concat_ws(separator, *pk_cols_in_df))
 
     @staticmethod
     def _prepare_with_partitions(
@@ -186,7 +175,5 @@ class Writer:
                 result = result.withColumn("event_date", F.to_date(F.col(ts_col)))
             else:
                 logger.warning("Unknown partition key '%s' — skipping", pk.name)
-
-        return result
 
         return result

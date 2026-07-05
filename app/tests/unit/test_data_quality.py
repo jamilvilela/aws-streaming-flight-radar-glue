@@ -18,8 +18,8 @@ from pyspark.sql.types import (
     TimestampType,
 )
 
-from src.config import CdcConfig, PartitionKey, SchemaField, SourceConfig, TargetConfig
-from src.data_quality import DataQuality
+from src.dependencies.config import CdcConfig, PartitionKey, SchemaField, SourceConfig, TargetConfig
+from src.dependencies.data_quality import DataQuality
 
 
 # ── Fixtures ─────────────────────────────────────────────────────────────────
@@ -153,24 +153,6 @@ class TestDataQuality:
         assert rejects.count() >= 1
         reject_rules = [r._reject_rule for r in rejects.collect()]
         assert "enum_check" in reject_rules
-
-    def test_duplicate_removal(self, spark, dq, flights_target, flights_source):
-        """Duplicate PK rows should be deduplicated, keeping the latest."""
-        rows = [
-            (1, "AA", "scheduled", datetime(2026, 6, 30, 10, 0, 0)),
-            (1, "AA", "active", datetime(2026, 6, 30, 11, 0, 0)),
-            (2, "DL", "landed", datetime(2026, 6, 30, 12, 0, 0)),
-        ]
-        schema = StructType([
-            StructField("flight_id", LongType(), True),
-            StructField("airline_code", StringType(), True),
-            StructField("status", StringType(), True),
-            StructField("dms_timestamp", TimestampType(), True),
-        ])
-        df = spark.createDataFrame(rows, schema)
-        valid, rejects = dq.validate(df, flights_target, flights_source)
-        assert valid.count() == 2  # One duplicate removed
-        assert rejects.isEmpty() is False
 
     def test_reject_enrichment(self, spark, dq, flights_target, flights_source):
         """Rejected rows should have _reject_* metadata columns."""

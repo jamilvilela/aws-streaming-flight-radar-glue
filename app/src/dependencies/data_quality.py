@@ -25,7 +25,7 @@ from pyspark.sql.types import (
     TimestampType,
 )
 
-from src.config import SourceConfig, TargetConfig
+from .config import SourceConfig, TargetConfig
 
 logger = logging.getLogger(__name__)
 
@@ -43,8 +43,10 @@ class DataQuality:
     1. Type casting — convert columns to target Spark types
     2. Null check — reject rows with nulls in non-nullable fields
     3. Enum validation — reject rows with invalid values in enum columns
-    4. Duplicate removal — deduplicate by primary key
-    5. Timestamp parsing — ensure timestamp columns are valid
+    4. Timestamp parsing — ensure timestamp columns are valid
+
+    Note: Duplicate removal is not performed here — it is delegated
+    to the Delta MERGE operation in the Writer class.
     """
 
     # Map from schema type string → Spark DataType
@@ -88,7 +90,7 @@ class DataQuality:
         Returns:
             Tuple of (valid DataFrame, rejected DataFrame).
         """
-        if df.rdd.isEmpty():
+        if df.isEmpty():
             logger.info("Empty DataFrame — skipping validation")
             empty = self._spark.createDataFrame([], self._reject_schema())
             return df, empty
@@ -111,15 +113,11 @@ class DataQuality:
         if rejects:
             all_rejects.append(rejects)
 
-        # 4. Duplicate removal by PK
-        valid_df, rejects = self._remove_duplicates(valid_df, target, source)
-        if rejects:
-            all_rejects.append(rejects)
-
-        # 5. Timestamp sanity
+        # 4. Timestamp sanity
         valid_df, rejects = self._validate_timestamps(valid_df, target, source)
         if rejects:
             all_rejects.append(rejects)
+        # (no explicit dedup — delegated to Delta MERGE in Writer)
 
         # Combine all rejected records
         if all_rejects:
@@ -264,7 +262,7 @@ class DataQuality:
         duplicates = df_with_rank.filter(F.col("_dq_rank") > 1)
         unique = df_with_rank.filter(F.col("_dq_rank") == 1).drop("_dq_rank")
 
-        if not duplicates.rdd.isEmpty():
+        if not duplicates.isEmpty():
             rejects = duplicates.drop("_dq_rank")
         else:
             rejects = self._empty_rejects()
@@ -295,7 +293,7 @@ class DataQuality:
         rule: str,
     ) -> DataFrame:
         """Add reject metadata columns to the rejected DataFrame."""
-        if df.rdd.isEmpty():
+        if df.isEmpty():
             return df
 
         now_ts = int(time.time())

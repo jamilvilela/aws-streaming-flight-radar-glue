@@ -10,7 +10,7 @@ from __future__ import annotations
 import logging
 
 from pyspark.sql import DataFrame, SparkSession
-from src.config import SourceConfig
+from .config import SourceConfig
 
 logger = logging.getLogger(__name__)
 

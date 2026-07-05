@@ -47,9 +47,14 @@ output "script_location" {
   value       = local.script_location
 }
 
-output "config_s3_path" {
+output "origins_s3_path" {
   description = "S3 path to the origins.json config"
-  value       = local.config_s3_path
+  value       = local.origins_s3_path
+}
+
+output "target_s3_path" {
+  description = "S3 path to the target.json config"
+  value       = local.target_s3_path
 }
 
 output "vpc_id" {

@@ -39,7 +39,6 @@ locals {
 estrutura dos dados de origem nos arquivos docs-sdd\structure_source_directory.md e docs-sdd\schema_source_files.md
 
 databases = {
-  landing  = "db_landing"
   raw      = "db_raw"
 }
 
@@ -56,7 +55,7 @@ arquivo de configuração .json das tabelas e arquivos envolvidos
     source: database,
     database: db_raw,
     table: opensky_flights
-    format: parquet
+    format: delta
     partition_keys = {
         "event_date": {"type": "date", "comment": "Data do evento (partição)"},
     }
@@ -72,6 +71,7 @@ arquivo de configuração .json das tabelas e arquivos envolvidos
         "last_contact":    {"type": "bigint", "comment": "Timestamp do último contato (epoch)"},
         "event_time":      {"type": "string", "comment": "Horário do evento"},
         "location":        {"type": "string", "comment": "Localização (geoname)"},
+        "cod_unico":       {"type": "string", "comment": "Concatenação da PK (icao24_event_time)"},
     }
 
 },
@@ -113,3 +113,9 @@ arquivo de configuração .json das tabelas e arquivos envolvidos
     }
 }
 ]
+
+os arquivos do glue job devem ficar dentro da pasta app/ 
+aws-streaming-flight-radar-glue\app\src
+aws-streaming-flight-radar-glue\app\infra
+aws-streaming-flight-radar-glue\app\tests
+aws-streaming-flight-radar-glue\app\config

@@ -26,8 +26,8 @@ import pytest
 from pyspark.sql import SparkSession
 from pyspark.sql.types import LongType, StringType, StructField, StructType, TimestampType
 
-from src.config import CdcConfig, Config, PartitionKey, SourceConfig
-from src.processor import Processor
+from src.dependencies.config import CdcConfig, Config, PartitionKey, SourceConfig
+from src.dependencies.processor import Processor
 
 
 # ── Fixtures ─────────────────────────────────────────────────────────────────
@@ -75,8 +75,6 @@ def source_config(account_id, test_id):
     """SourceConfig pointing to a unique test location."""
     return SourceConfig(
         source="flights",
-        database="db_landing",
-        table="flights",
         format="parquet",
         schema={
             "flight_id": {"type": "bigint", "nullable": False, "comment": "PK"},

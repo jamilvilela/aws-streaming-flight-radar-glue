@@ -3,9 +3,9 @@
     "database": "db_raw",
     "table": "tbl_opensky_flights"
   },
-  "location": "s3://lakehouse-raw-{account_id}/tables/flights/",
-  "rejected_location": "s3://lakehouse-raw-{account_id}/tables/flights/Rejected/",
-  "format": "parquet",
+  "location": "s3://lakehouse-raw-{account_id}/tables/tbl_opensky_flights/",
+  "rejected_location": "s3://lakehouse-landing-{account_id}/tables/tbl_opensky_flights/Rejected/",
+  "format": "delta",
   "compression": "snappy",
   "partition_keys": [
     {"name": "event_date", "type": "date"}
@@ -21,8 +21,10 @@
     "heading":       {"type": "double", "nullable": true},
     "last_contact":  {"type": "bigint", "nullable": true},
     "event_time":    {"type": "string", "nullable": true},
-    "location":      {"type": "string", "nullable": true}
+    "location":      {"type": "string", "nullable": true},
+    "cod_unico":     {"type": "string", "nullable": true, "comment": "Concatenação da PK (icao24_event_time)"}
   },
   "primary_key": ["icao24", "event_time"],
+  "cod_unico_expr": {"columns": ["icao24", "event_time"], "separator": "_"},
   "enum_columns": {}
 }

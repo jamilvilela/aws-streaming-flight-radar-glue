@@ -9,7 +9,7 @@ environment = "dev"
 control_account = "331504768406"
 
 databases = {
-  landing  = "db_landing"
+  landing  = ""
   raw      = "db_raw"
   trusted  = "db_trusted"
   business = "db_business"
@@ -43,7 +43,9 @@ glue_script_location = ""
 
 glue_extra_py_files = ""
 
-glue_config_s3_path = ""
+glue_origins_s3_path = ""
+
+glue_target_s3_path  = ""
 
 glue_connections = []
 

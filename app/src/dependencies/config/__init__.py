@@ -109,6 +109,7 @@ class TargetConfig:
     schema: Dict[str, SchemaField] = field(default_factory=dict)
     primary_key: List[str] = field(default_factory=list)
     enum_columns: Dict[str, List[str]] = field(default_factory=dict)
+    cod_unico_expr: Optional[Dict[str, Any]] = None
 
     @property
     def database(self) -> str:
@@ -129,6 +130,7 @@ class TargetConfig:
             "schema": {k: v.to_dict() for k, v in self.schema.items()},
             "primary_key": list(self.primary_key),
             "enum_columns": dict(self.enum_columns),
+            "cod_unico_expr": dict(self.cod_unico_expr) if self.cod_unico_expr else None,
         }
 
 
@@ -260,6 +262,7 @@ class Config:
             schema=parsed_schema,
             primary_key=item.get("primary_key", []),
             enum_columns=item.get("enum_columns", {}),
+            cod_unico_expr=item.get("cod_unico_expr"),
         )
 
     @staticmethod

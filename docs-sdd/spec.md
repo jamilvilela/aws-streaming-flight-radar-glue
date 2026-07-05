@@ -23,7 +23,7 @@ Pipeline de processamento CDC (Change Data Capture) usando **AWS Glue 5.1 (PySpa
 | AWS Glue | 5.1 |
 | Apache Spark | 4.0 |
 | Python | 3.10+ |
-| Formato | Parquet + Snappy |
+| Formato | **Delta Lake** (target) / Parquet (rejects) |
 | Infraestrutura | Terraform ≥ 1.5 |
 | Testes | pytest + boto3 |
 
@@ -37,7 +37,7 @@ Pipeline de processamento CDC (Change Data Capture) usando **AWS Glue 5.1 (PySpa
                          │ readStream (maxFilesPerTrigger=1)
                          ▼
 ┌─────────────────────────────────────────────────────────────────────┐
-│  Reader (src/reader.py)                                             │
+│  Reader (app/src/dependencies/reader.py)                           │
 │  • Spark readStream puro (sem Glue)                                 │
 │  • cleanSource=archive, checkpoint S3                               │
 │  • Sem job bookmarks, sem batch fallback                            │
@@ -45,24 +45,25 @@ Pipeline de processamento CDC (Change Data Capture) usando **AWS Glue 5.1 (PySpa
                          │ DataFrame bruto
                          ▼
 ┌─────────────────────────────────────────────────────────────────────┐
-│  DataQuality (src/data_quality.py)                                  │
-│  Pipeline de 5 etapas:                                              │
+│  DataQuality (app/src/dependencies/data_quality.py)                │
+│  Pipeline de 4 etapas:                                              │
 │  1. _cast_types — converter tipos conforme schema target            │
 │  2. _check_nulls — filtrar nulos em campos NOT NULL                 │
 │  3. _check_enums — validar valores de enum_columns                  │
-│  4. _remove_duplicates — dedup por primary_key (row_number + CDC)   │
-│  5. _validate_timestamps — pass-through                             │
+│  4. _validate_timestamps — pass-through                             │
+│  **Sem dedup** — unicidade garantida pelo Delta MERGE na escrita    │
 │  Retorna: (valid_df, rejects_df) com metadados de rejeição          │
 └──────────────────────┬──────────────────┬───────────────────────────┘
                        │ valid_df         │ rejects_df
                        ▼                  ▼
-┌──────────────────────────┐   ┌──────────────────────────┐
-│  Writer (src/writer.py)  │   │  Writer.write_rejects()  │
-│  • Parquet + Snappy      │   │  • Salva em Rejected/    │
-│  • Partition by event_date│   │  • Com metadados         │
-│  • Modo append           │   └──────────────────────────┘
-│  • Compaction            │
-└──────────┬───────────────┘
+┌──────────────────────────────┐   ┌──────────────────────────┐
+│  Writer (app/src/dependencies/   │   │  Writer.write_rejects()  │
+│         writer.py)           │   │  • Salva em Rejected/    │
+│  • **Delta Lake**            │   │  • Com metadados         │
+│  • MERGE por PK composta     │   └──────────────────────────┘
+│  • Partition by event_date   │
+│  • Gera cod_unico            │
+└──────────┬───────────────────┘
            │
            ▼
 ┌─────────────────────────────────────────────────────────────────────┐
@@ -71,62 +72,66 @@ Pipeline de processamento CDC (Change Data Capture) usando **AWS Glue 5.1 (PySpa
 │  Partição: event_date                                               │
 └─────────────────────────────────────────────────────────────────────┘
 
-┌──────────────────────┐   ┌──────────────────────────┐
-│  EtlControl           │   │  QualityMetrics          │
-│  (src/etl_control.py) │   │  (src/quality_metrics.py)│
-│  • etl_control table  │   │  • data_quality_metrics  │
-│  • execution_id,      │   │  • rows_read/written/    │
-│    records, status    │   │    rejected, status      │
-└──────────────────────┘   └──────────────────────────┘
+┌──────────────────────────────┐   ┌──────────────────────────────────┐
+│  EtlControl                  │   │  QualityMetrics                  │
+│  (app/src/dependencies/     │   │  (app/src/dependencies/         │
+│    etl_control.py)           │   │    quality_metrics.py)           │
+│  • etl_control table         │   │  • data_quality_metrics          │
+│  • execution_id,             │   │  • rows_read/written/            │
+│    records, status           │   │    rejected, status              │
+└──────────────────────────────┘   └──────────────────────────────────┘
 ```
 
 ## 3. Componentes
 
-### 3.1. Config — `src/config.py`
+### 3.1. Config — `app/src/dependencies/config/` (subpacote)
 
 **Dataclasses:**
 - `SchemaField(name, type, comment, nullable)`
 - `PartitionKey(name, type)`
 - `CdcConfig(op_column, timestamp_column, order)`
 - `SourceConfig(source, source_location, format, cdc_config, checkpoint_location)`
-- `TargetConfig(catalog, location, rejected_location, format, compression, partition_keys, schema, primary_key, enum_columns)`
+- `TargetConfig(catalog, location, rejected_location, format, compression, partition_keys, schema, primary_key, enum_columns, cod_unico_expr)`
 - `Config` com métodos `from_files()`, `from_s3()`, `to_dict()`
 
 **Arquivos de configuração:**
 | Arquivo | Propósito | Conteúdo |
 |---------|-----------|----------|
-| `config/origins.json` | Conexão DMS | source, source_location, format, cdc_config, checkpoint_location |
-| `config/target.json` | Schema destino | catalog, location, partition_keys, schema, primary_key, enum_columns |
+| `app/src/dependencies/config/origins.json` | Conexão DMS | source, source_location, format, cdc_config, checkpoint_location |
+| `app/src/dependencies/config/target.json` | Schema destino | catalog, location, partition_keys, schema, primary_key, enum_columns |
 
-### 3.2. Reader — `src/reader.py`
+### 3.2. Reader — `app/src/dependencies/reader.py`
 - Leitura **streaming-only** via `spark.readStream.format("parquet")`
 - Configurações: `maxFilesPerTrigger=1`, `cleanSource=archive`, `includeExistingFiles=true`
 - Checkpoint no S3 (`source.checkpoint_location`)
 - **Sem suporte batch**
 
-### 3.3. DataQuality — `src/data_quality.py`
-- Pipeline de 5 etapas executado sobre DataFrame bruto
+### 3.3. DataQuality — `app/src/dependencies/data_quality.py`
+- Pipeline de 4 etapas executado sobre DataFrame bruto
 - Usa schema do `TargetConfig` para validação dinâmica
+- **Sem dedup explícito** — unicidade garantida pelo Delta MERGE na escrita
 - Registros rejeitados enriquecidos com `_reject_table`, `_reject_rule`, `_reject_timestamp`
 - Retorna `(valid_df, rejects_df)`
 
-### 3.4. Writer — `src/writer.py`
-- Escrita Parquet + Snappy com `partitionBy`
+### 3.4. Writer — `app/src/dependencies/writer.py`
+- Escrita **Delta Lake** com `DeltaTable.forName()` via Glue Catalog
+- Gera `cod_unico` via `F.concat_ws("_", *pk_cols)` para chave do merge
 - Deriva `event_date` via `F.to_date(F.col(partition_col))`
-- `write_rejects()` para registros rejeitados
-- `compact()` para coalescer small files
+- MERGE: `WHEN NOT MATCHED THEN INSERT` / `WHEN MATCHED THEN UPDATE`
+- **Sem compaction manual** — Delta gerencia via auto-optimize
+- `write_rejects()` para registros rejeitados (formato Parquet)
 
-### 3.5. EtlControl — `src/etl_control.py`
+### 3.5. EtlControl — `app/src/dependencies/etl_control.py`
 - Classe separada para registro em `etl_control`
 - Método `register(execution_id, source_name, status, records_read, records_written, records_rejected, target, elapsed_seconds, error_message)`
 - Resolve account_id via boto3 STS
 
-### 3.6. QualityMetrics — `src/quality_metrics.py`
+### 3.6. QualityMetrics — `app/src/dependencies/quality_metrics.py`
 - Classe separada para métricas em `data_quality_metrics`
 - Método `save(target, status, records_read, records_written, records_rejected)`
 - Resolve account_id via boto3 STS
 
-### 3.7. Processor — `src/processor.py`
+### 3.7. Processor — `app/src/dependencies/processor.py`
 - Orquestrador do pipeline (8 etapas):
   1. Load configs (origins + target)
   2. Read streaming data
@@ -137,7 +142,7 @@ Pipeline de processamento CDC (Change Data Capture) usando **AWS Glue 5.1 (PySpa
   7. QualityMetrics.save()
   8. Logging
 
-### 3.8. Main — `src/main.py`
+### 3.8. Main — `app/src/main.py`
 - Parse de argumentos via `argparse`: `--origins_s3_path`, `--target_s3_path`, `--conf`
 - `_parse_conf()` converte string "key=val key=val" em dict
 - `_init_spark()` aplica configs dinamicamente
@@ -153,7 +158,11 @@ Pipeline de processamento CDC (Change Data Capture) usando **AWS Glue 5.1 (PySpa
 | `aws_glue_security_configuration.glue` | Security Config | CloudWatch SSE-KMS, bookmarks CSE-KMS, S3 SSE-KMS |
 | `aws_glue_connection.vpc` | Glue Connection | NETWORK, subnet privada, SG default |
 | `aws_glue_job.streaming_minibatch_dms` | Glue Job | Glue 5.1, Python 3.10, G.1X, 2 workers |
-| `null_resource.upload_artifacts` | Null Resource | Upload scripts + configs para S3 via local-exec |
+| `data.archive_file.helpers` | Archive Data | Cria helpers.zip a partir de `app/src/dependencies/` |
+| `aws_s3_object.main_py` | S3 Object | Upload de `main.py` para scripts path |
+| `aws_s3_object.helpers_zip` | S3 Object | Upload de `helpers.zip` para dependencies path |
+| `aws_s3_object.origins_json` | S3 Object | Upload de `origins.json` (com `{account_id}` resolvido) |
+| `aws_s3_object.target_json` | S3 Object | Upload de `target.json` (com `{account_id}` resolvido) |
 
 ### Spark Configs Dinâmicas (`locals.tf → spark_conf`)
 - `spark.sql.adaptive.enabled` = true
@@ -161,7 +170,6 @@ Pipeline de processamento CDC (Change Data Capture) usando **AWS Glue 5.1 (PySpa
 - `spark.sql.adaptive.skewJoin.enabled` = true
 - `spark.sql.adaptive.advisoryPartitionSizeInBytes` = 128MB
 - `spark.sql.shuffle.partitions` = 200
-- `spark.sql.parquet.compression.codec` = snappy
 - `spark.executor.memory` = 4g
 - `spark.driver.memory` = 4g
 - `spark.executor.memoryOverhead` = 2g
@@ -169,6 +177,9 @@ Pipeline de processamento CDC (Change Data Capture) usando **AWS Glue 5.1 (PySpa
 - `spark.memory.offHeap.enabled` = true
 - `spark.memory.offHeap.size` = 2g
 - `spark.dynamicAllocation.enabled` = true
+- **Delta Lake configs:**
+  - `spark.databricks.delta.properties.defaults.autoOptimize.optimizeWrite` = true
+  - `spark.databricks.delta.properties.defaults.autoOptimize.autoCompact` = true
 
 ### Dados Existentes (data sources)
 - IAM Role: `role-datalake-analytics`
@@ -184,7 +195,7 @@ Pipeline de processamento CDC (Change Data Capture) usando **AWS Glue 5.1 (PySpa
 - Verifica pré-requisitos (Terraform, AWS CLI, jq)
 - Inicializa Terraform com backend S3
 - Seleciona workspace
-- Aplica Terraform (upload de artefatos é feito pelo `null_resource.upload_artifacts`)
+- Aplica Terraform (upload de artefatos é feito pelos `aws_s3_object` resources)
 
 ### `scripts/rollback-setup.sh`
 - Confirma rollback

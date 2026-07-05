@@ -1,5 +1,5 @@
 """
-Unit tests for writer.py — Writer class for Parquet+Snappy writing.
+Unit tests for writer.py — Writer class for Delta Lake writing.
 """
 
 from __future__ import annotations
@@ -10,8 +10,8 @@ import pytest
 from pyspark.sql import SparkSession
 from pyspark.sql.types import LongType, StringType, StructField, StructType, TimestampType
 
-from src.config import CdcConfig, PartitionKey, SchemaField, SourceConfig, TargetConfig
-from src.writer import Writer, WriterError
+from src.dependencies.config import CdcConfig, PartitionKey, SchemaField, SourceConfig, TargetConfig
+from src.dependencies.writer import Writer, WriterError
 
 
 # ── Fixtures ─────────────────────────────────────────────────────────────────
@@ -41,7 +41,7 @@ def flights_target():
         catalog={"database": "db_raw", "table": "tbl_opensky_flights"},
         location="s3://raw/tables/opensky/flights/",
         rejected_location="s3://landing/dms/flightradar/flight_radar/Rejected/",
-        format="parquet",
+        format="delta",
         compression="snappy",
         partition_keys=[PartitionKey("event_date", "date")],
         schema={
@@ -52,6 +52,7 @@ def flights_target():
         },
         primary_key=["flight_id"],
         enum_columns={"status": ["active"]},
+        cod_unico_expr={"columns": ["flight_id"], "separator": "_"},
     )
 
 
@@ -107,17 +108,32 @@ class TestWriter:
         df = writer._spark.createDataFrame([], schema)
         writer.write_rejects(df, flights_target)  # Should not raise
 
-    def test_compact_empty(self, writer, flights_target, flights_source):
-        """Compaction on empty/non-existent location should not fail."""
-        # Mock the read to return empty
-        with patch.object(writer._spark.read, "format") as mock_read:
-            mock_reader = MagicMock()
-            mock_read.return_value.load.return_value = writer._spark.createDataFrame([], StructType([]))
-            writer.compact(flights_target)
-
-    def test_write_accepts_source_and_target(self, writer, flights_source, flights_target):
-        """Writer.write accepts both source and target configs."""
+    def test_write_empty_delta(self, writer, flights_source, flights_target):
+        """Writing empty DataFrame with Delta should not fail."""
         schema = StructType([StructField("dummy", StringType(), True)])
         df = writer._spark.createDataFrame([], schema)
-        # Should not raise
+        # Should not raise (returns early for empty df)
         writer.write(df, flights_target, flights_source)
+
+    def test_generate_cod_unico_from_pk(self, writer, flights_target):
+        """_generate_cod_unico should create cod_unico from PK columns."""
+        rows = [(1, "AA")]
+        schema = StructType([
+            StructField("flight_id", LongType(), True),
+            StructField("airline_code", StringType(), True),
+        ])
+        df = writer._spark.createDataFrame(rows, schema)
+        result = writer._generate_cod_unico(df, flights_target)
+        assert "cod_unico" in result.columns
+        assert result.collect()[0].cod_unico == "1"
+
+    def test_generate_cod_unico_skips_existing(self, writer, flights_target):
+        """_generate_cod_unico should skip if cod_unico already exists."""
+        rows = [(1, "existing_val")]
+        schema = StructType([
+            StructField("flight_id", LongType(), True),
+            StructField("cod_unico", StringType(), True),
+        ])
+        df = writer._spark.createDataFrame(rows, schema)
+        result = writer._generate_cod_unico(df, flights_target)
+        assert result.collect()[0].cod_unico == "existing_val"

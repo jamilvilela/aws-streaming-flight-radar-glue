@@ -10,8 +10,8 @@ import pytest
 from pyspark.sql import SparkSession
 from pyspark.sql.types import LongType, StringType, StructField, StructType
 
-from src.config import CdcConfig, PartitionKey, SchemaField, SourceConfig, TargetConfig
-from src.processor import Processor, ProcessorError
+from src.dependencies.config import CdcConfig, PartitionKey, SchemaField, SourceConfig, TargetConfig
+from src.dependencies.processor import Processor, ProcessorError
 
 
 # ── Fixtures ─────────────────────────────────────────────────────────────────
@@ -41,7 +41,7 @@ def flights_target():
         catalog={"database": "db_raw", "table": "tbl_opensky_flights"},
         location="s3://raw/tables/opensky/flights/",
         rejected_location="s3://landing/dms/flightradar/flight_radar/Rejected/",
-        format="parquet",
+        format="delta",
         compression="snappy",
         partition_keys=[PartitionKey("event_date", "date")],
         schema={
@@ -52,6 +52,7 @@ def flights_target():
         },
         primary_key=["flight_id"],
         enum_columns={"status": ["active", "landed"]},
+        cod_unico_expr={"columns": ["flight_id"], "separator": "_"},
     )
 
 
@@ -72,8 +73,14 @@ class TestProcessor:
         assert processor._quality_metrics is not None
         assert processor._execution_id == ""
 
-    def test_run_success(self, spark, processor, flights_source, flights_target):
+    @patch("delta.tables.DeltaTable.forName")
+    def test_run_success(self, mock_delta, spark, processor, flights_source, flights_target):
         """A successful pipeline run should complete without errors."""
+        # Mock DeltaTable.forName to avoid requiring Delta Lake binaries
+        mock_delta.return_value.alias.return_value.merge.return_value \
+            .whenNotMatchedInsertAll.return_value \
+            .whenMatchedUpdateAll.return_value.execute.return_value = None
+
         # Create minimal input data
         schema = StructType([
             StructField("flight_id", LongType(), True),
@@ -94,8 +101,14 @@ class TestProcessor:
         assert processor._records_written == 1
         assert processor._records_rejected == 0
 
-    def test_run_with_rejects(self, spark, processor, flights_source, flights_target):
+    @patch("delta.tables.DeltaTable.forName")
+    def test_run_with_rejects(self, mock_delta, spark, processor, flights_source, flights_target):
         """Pipeline should handle rows that fail validation."""
+        # Mock DeltaTable.forName to avoid requiring Delta Lake binaries
+        mock_delta.return_value.alias.return_value.merge.return_value \
+            .whenNotMatchedInsertAll.return_value \
+            .whenMatchedUpdateAll.return_value.execute.return_value = None
+
         schema = StructType([
             StructField("flight_id", LongType(), True),
             StructField("airline_code", StringType(), True),
@@ -112,8 +125,14 @@ class TestProcessor:
         assert processor._records_rejected >= 1
         assert processor._records_written == 0
 
-    def test_run_empty_dataframe(self, spark, processor, flights_source, flights_target):
+    @patch("delta.tables.DeltaTable.forName")
+    def test_run_empty_dataframe(self, mock_delta, spark, processor, flights_source, flights_target):
         """Empty input should be handled gracefully."""
+        # Mock DeltaTable.forName to avoid requiring Delta Lake binaries
+        mock_delta.return_value.alias.return_value.merge.return_value \
+            .whenNotMatchedInsertAll.return_value \
+            .whenMatchedUpdateAll.return_value.execute.return_value = None
+
         schema = StructType([
             StructField("flight_id", LongType(), True),
         ])
@@ -138,7 +157,7 @@ class TestProcessor:
 
     def test_sub_components_created(self, processor):
         """All sub-components should be properly instantiated."""
-        from src.etl_control import EtlControl
-        from src.quality_metrics import QualityMetrics
+        from src.dependencies.etl_control import EtlControl
+        from src.dependencies.quality_metrics import QualityMetrics
         assert isinstance(processor._etl_control, EtlControl)
         assert isinstance(processor._quality_metrics, QualityMetrics)

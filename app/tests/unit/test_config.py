@@ -10,7 +10,7 @@ from pathlib import Path
 
 import pytest
 
-from src.config import (
+from src.dependencies.config import (
     CdcConfig,
     Config,
     PartitionKey,
@@ -120,11 +120,13 @@ class TestTargetConfig:
             schema=self.SAMPLE_SCHEMA,
             primary_key=["icao24", "event_time"],
             enum_columns={"status": ["active", "landed"]},
+        cod_unico_expr={"columns": ["icao24", "event_time"], "separator": "_"},
         )
         d = cfg.to_dict()
         assert d["catalog"]["database"] == "db_raw"
         assert d["primary_key"] == ["icao24", "event_time"]
         assert d["enum_columns"]["status"] == ["active", "landed"]
+        assert d["cod_unico_expr"] == {"columns": ["icao24", "event_time"], "separator": "_"}
         assert len(d["partition_keys"]) == 1
         assert d["partition_keys"][0]["name"] == "event_date"
 
@@ -153,6 +155,7 @@ class TestConfig:
             "latitude": {"type": "double", "nullable": True, "comment": "Latitude"},
         },
         "primary_key": ["icao24", "event_time"],
+        "cod_unico_expr": {"columns": ["icao24", "event_time"], "separator": "_"},
         "enum_columns": {},
     }
 

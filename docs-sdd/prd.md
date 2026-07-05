@@ -37,25 +37,26 @@ Os dados replicados pelo DMS no bucket landing precisam ser processados antes de
 - Job lê ambos os arquivos em runtime usando **dataclasses** Python
 - Schema deve incluir tipos (string, double, bigint, etc.), partition_keys, primary_key, enum_columns
 
-### RF03 — Qualidade de Dados (5 etapas)
-- Pipeline de validação com 5 etapas:
+### RF03 — Qualidade de Dados (4 etapas)
+- Pipeline de validação com 4 etapas:
   1. **Cast de tipos** — converte colunas conforme schema do target
   2. **Null check** — filtra nulos em campos NOT NULL
   3. **Enum validation** — valida valores de `enum_columns`
-  4. **Duplicate removal** — dedup por `primary_key` usando `row_number()` + ordenação CDC
-  5. **Timestamp validation** — valida timestamps
+  4. **Timestamp validation** — valida timestamps
+- **Sem dedup explícito** — unicidade garantida pelo Delta MERGE na escrita
 - Registrar métricas de qualidade em `data_quality_metrics` via classe `QualityMetrics`
 
 ### RF04 — Rejeição de Registros
 - Registros que não passarem nas validações devem ser salvos em `Rejected/`
 - Cada registro rejeitado deve incluir metadados: `_reject_table`, `_reject_rule`, `_reject_timestamp`
 
-### RF05 — Escrita no Data Lake
-- Formato: **Parquet + Snappy**
+### RF05 — Escrita no Data Lake (Delta Lake)
+- Formato: **Delta Lake** para dados válidos (rejects em Parquet)
 - Particionamento por `event_date` (derivado de coluna timestamp)
-- Modo `append` para dados incrementais
-- Implementar **compaction** para mitigar small files
-- Suporte a escrita de rejects via `Writer.write_rejects()`
+- Escrita via **Delta MERGE** (`WHEN NOT MATCHED THEN INSERT` / `WHEN MATCHED THEN UPDATE`) com base na PK
+- Geração de `cod_unico` (concatenação da PK) como chave do merge
+- **Sem necessidade de compaction** — Delta Lake gerencia otimização via auto-optimize
+- Suporte a escrita de rejects via `Writer.write_rejects()` (formato Parquet)
 
 ### RF06 — Rastreabilidade (EtlControl)
 - Classe `EtlControl` separada para escrever metadados em `etl_control`
@@ -78,7 +79,7 @@ Os dados replicados pelo DMS no bucket landing precisam ser processados antes de
   - Glue Security Configuration (SSE-KMS para CloudWatch, SSE-KMS para S3)
   - Glue Connection tipo NETWORK para acesso à VPC
   - Glue Job com Spark configs passadas via `--conf` (AQE, shuffle, memória, compressão)
-  - `null_resource.upload_artifacts` para upload de scripts Python e configs JSON ao S3
+  - `data.archive_file.helpers` + `aws_s3_object.*` para upload declarativo de scripts Python e configs JSON ao S3
   - Databases e tabelas Glue Catalog **não são criados** — já existem no Data Lake
 
 ### RF09 — Spark Configs Dinâmicas (--conf)
@@ -124,7 +125,7 @@ Os dados replicados pelo DMS no bucket landing precisam ser processados antes de
 |------------|-----------|
 | Processamento | **AWS Glue 5.1** (PySpark 4.0) |
 | Linguagem | Python 3.10+ com dataclasses e type hints |
-| Armazenamento | Amazon S3 (Parquet + Snappy) |
+| Armazenamento | Amazon S3 (Delta Lake para target / Parquet para rejects) |
 | Catálogo | AWS Glue Data Catalog |
 | Orquestração | Glue Job Triggers / EventBridge |
 | Monitoramento | CloudWatch Logs + Metrics |

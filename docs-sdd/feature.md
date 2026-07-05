@@ -11,7 +11,7 @@ author: Data Engineering Team
 # Feature: Glue Streaming Mini-Batch com DMS CDC — `tbl_opensky_flights`
 
 ## 1. Descrição
-Job **AWS Glue 5.1 (PySpark 4.0)** para processar dados de Change Data Capture (CDC) replicados pelo **AWS DMS Serverless** no bucket **landing**, aplicar regras de qualidade e armazenar no **Data Lake** (camada raw — `tbl_opensky_flights`) no formato **Parquet + Snappy**, particionado e catalogado no **Glue Data Catalog**.
+Job **AWS Glue 5.1 (PySpark 4.0)** para processar dados de Change Data Capture (CDC) replicados pelo **AWS DMS Serverless** no bucket **landing**, aplicar regras de qualidade e armazenar no **Data Lake** (camada raw — `tbl_opensky_flights`) no formato **Delta Lake**, particionado e catalogado no **Glue Data Catalog**.
 
 > ⚠️ **Pure Spark:** O job **não** utiliza APIs do Glue (`GlueContext`, `DynamicFrame`, `Job`, `getResolvedOptions`). Todo o processamento é feito com SparkSession puro.
 
@@ -22,8 +22,8 @@ O AWS DMS Serverless replica continuamente dados de uma origem Aurora PostgreSQL
 
 O Glue Job processa esses arquivos em **mini-batches** (60s), garantindo:
 - Leitura streaming com checkpoint S3 (`cleanSource=archive`) — **sem job bookmarks**
-- Validação e limpeza dos dados (cast de tipos, nulls, enums, dedup)
-- Escrita eficiente no bucket raw (Parquet + Snappy particionado)
+- Validação e limpeza dos dados (cast de tipos, nulls, enums)
+- Escrita no bucket raw em **Delta Lake** com **MERGE por PK** para garantir unicidade cross-batch
 - Rastreamento de métricas de qualidade via `QualityMetrics`
 - Registro de execução em tabela de controle via `EtlControl`
 
@@ -62,10 +62,12 @@ O Glue Job processa esses arquivos em **mini-batches** (60s), garantindo:
 | `last_contact` | `bigint` | Último contato |
 | `event_time` | `string` | Horário do evento |
 | `location` | `string` | Localização |
+| `cod_unico` | `string` | Concatenação da PK (icao24 + event_time) para merge |
 
 **Partição:** `event_date` (date).  
-**Formato:** Parquet + Snappy.  
+**Formato:** Delta Lake.  
 **PK:** `icao24`, `event_time`.  
+**Dedup:** Delta MERGE (cross-batch, sem `row_number()` ou `dropDuplicates`).  
 **Localização:** `s3://{bucket_raw}/tables/opensky/flights/`.
 
 ## 5. Estrutura do Job
@@ -73,8 +75,8 @@ O Glue Job processa esses arquivos em **mini-batches** (60s), garantindo:
 ### 5.1. Arquivos de Configuração (separados)
 | Arquivo | Conteúdo | Classe |
 |---------|----------|--------|
-| `config/origins.json` | Configuração da origem DMS (conexão) | `SourceConfig` |
-| `config/target.json` | Schema e metadados da tabela destino | `TargetConfig` |
+| `app/src/dependencies/config/origins.json` | Configuração da origem DMS (conexão) | `SourceConfig` |
+| `app/src/dependencies/config/target.json` | Schema e metadados da tabela destino | `TargetConfig` |
 
 ### 5.2. Classes
 
@@ -104,6 +106,8 @@ O Glue Job processa esses arquivos em **mini-batches** (60s), garantindo:
 
 As configurações Spark são definidas no `locals.tf` do módulo Terraform como um mapa `spark_properties` e convertidas em uma string única `--conf`. O `main.py` parseia essa string e aplica cada propriedade dinamicamente ao `SparkSession.builder`, eliminando valores hardcoded no código.
 
+Configurações específicas para Delta Lake são incluídas: `spark.databricks.delta.properties.defaults.autoOptimize.optimizeWrite` e `spark.databricks.delta.properties.defaults.autoOptimize.autoCompact`.
+
 ### 4.3. Pipeline
 ```
 main.py
@@ -112,7 +116,7 @@ main.py
         ├── 2. Reader.stream(config) → DataFrame bruto
         ├── 3. DataQuality.validate(df, config) → (valid_df, rejects_df)
         ├── 4. Writer.write_rejects(rejects_df, config)
-        ├── 5. Writer.write(valid_df, config)
+        ├── 5. Writer.write(valid_df, config)  → Delta MERGE por PK
         ├── 6. etl_control.registrar_execucao(...)
         └── 7. data_quality_metrics.salvar_metricas(...)
 ```
@@ -121,12 +125,12 @@ main.py
 
 | Regra | Descrição | Ação para inválidos |
 |-------|-----------|-------------------|
-| PK duplicada | `flight_id` duplicado | Rejeitar (manter primeira ocorrência) |
-| Null em PK | `flight_id` nulo | Rejeitar |
-| Enum `status` | Valor fora de [scheduled, active, landed, cancelled, diverted] | Rejeitar |
+| Null em PK | `icao24` ou `event_time` nulo | Rejeitar |
 | Enum `Op` | Valor fora de [I, U, D] | Rejeitar |
-| Tipo `timestamp` | Colunas TIMESTAMPTZ com formato inválido | Rejeitar |
-| Tipo `bigint` | `flight_id` não numérico | Rejeitar |
+| Tipo `timestamp` | Colunas com formato inválido | Rejeitar |
+| Tipo `double` | Colunas numéricas não convertíveis | Rejeitar |
+
+> **Nota:** A validação de PK duplicada é delegada ao **Delta MERGE** na escrita — a cláusula `WHEN NOT MATCHED THEN INSERT` garante que apenas registros com nova PK sejam inseridos, e `WHEN MATCHED THEN UPDATE` atualiza registros existentes. Não há necessidade de `row_number()` ou `dropDuplicates` no pipeline.
 
 ## 6. Tabelas de Suporte
 
@@ -173,7 +177,7 @@ Schema sugerido (enriquecido):
 | `infra/` | Módulo Terraform completo (Glue job, KMS, Security Config, Connection, Databases) |
 | `scripts/setup-env.sh` | Script bash para setup do ambiente AWS via Terraform (aponta para `infra/`) |
 | `scripts/rollback-setup.sh` | Script bash para rollback do ambiente AWS |
-| `config/origins.json` | Configuração das origens (JSON) |
+| `app/src/dependencies/config/origins.json` | Configuração das origens (JSON) |
 
 ## 8. Critérios de Aceitação
 
@@ -203,5 +207,5 @@ Schema sugerido (enriquecido):
 - Role IAM `role-datalake-analytics`
 - Default VPC com subnets privadas e security group default
 - KMS key para criptografia (criada pelo módulo `infra/`)
-- Glue Catalog databases `db_landing` e `db_raw` (criadas pelo módulo `infra/`)
+- Glue Catalog database `db_raw` (já existe no Data Lake, não é criado pelo módulo `infra/`)
 - Tabelas Glue Catalog em `scripts/*.tf`

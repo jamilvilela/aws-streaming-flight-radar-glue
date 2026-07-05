@@ -12,16 +12,17 @@ description: Agentes especializados para implementação do Glue Job streaming m
 - PySpark 4.0 / AWS Glue 5.1 (pure Spark — sem GlueContext, DynamicFrame ou Job)
 - Leitura streaming com `spark.readStream` e `forEachBatch`
 - Checkpointing S3 com `cleanSource=archive` (sem job bookmarks)
-- DataFrame API: schema validation, type casting, dedup com `row_number()`
-- Escrita particionada em Parquet + Snappy
+- DataFrame API: schema validation, type casting
+- **Delta Lake**: `DeltaTable.forName()` via Glue Catalog, MERGE por PK, particionamento
+- Escrita particionada em Delta Lake com MERGE (cross-batch dedup)
 - Dataclasses Python com type hints (SourceConfig, TargetConfig)
-- Spark configs de otimização (AQE, shuffle, off-heap, dynamic allocation)
+- Spark configs de otimização (AQE, shuffle, off-heap, dynamic allocation, Delta auto-optimize)
 - Configs passadas via `--conf` e aplicadas dinamicamente
 
 **Prompt pattern para invocar:**
 ```
 Use o agente glue-job-builder para implementar a classe {ClassName} 
-em src/{file_name}.py com os seguintes requisitos:
+em app/src/dependencies/{file_name}.py com os seguintes requisitos:
 - {requisito 1}
 - {requisito 2}
 ...
@@ -43,10 +44,10 @@ em src/{file_name}.py com os seguintes requisitos:
 
 **Habilidades:**
 - Validação de schemas (tipos, nulabilidade, constraints)
-- Pipeline de 5 etapas: cast_types, check_nulls, check_enums, remove_duplicates, validate_timestamps
+- Pipeline de 4 etapas: cast_types, check_nulls, check_enums, validate_timestamps
+- **Sem dedup explícito** — delegado ao Delta MERGE na escrita
 - Geração de métricas de qualidade via `QualityMetrics`
 - Estrutura de dados para rejected records (`_reject_table`, `_reject_rule`, `_reject_timestamp`)
-- Dedup com base em primary_key composta e ordenação CDC
 
 ## Agente: `config-designer`
 **Propósito:** Projetar e validar arquivos de configuração JSON (separados)
@@ -72,7 +73,7 @@ em src/{file_name}.py com os seguintes requisitos:
 
 ### Para gerar código de uma classe específica:
 ```
-@glue-job-builder Crie a classe Reader em src/reader.py 
+@glue-job-builder Crie a classe Reader em app/src/dependencies/reader.py 
 que lê dados Parquet do S3 em streaming puro (sem Glue, sem batch, sem bookmarks).
 ```
 
