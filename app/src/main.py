@@ -1,9 +1,11 @@
 """
-main.py — Entry point for the Spark Streaming Mini-Batch Job.
+main.py — Entry point for the Glue Job (multi-table batch + streaming).
 
-Reads source and target configs from S3, initiliases Spark with
-performance configs from --conf, and runs the pipeline in
-streaming mode (forEachBatch).
+Reads a single config.json from S3 containing all table definitions
+(sources + targets), then runs in either:
+- **Batch mode**: processes all tables sequentially in ``order``.
+- **Streaming mode**: starts one streaming query per table concurrently.
+
 No Glue-specific APIs are used.
 """
 
@@ -12,12 +14,12 @@ from __future__ import annotations
 import argparse
 import logging
 import sys
-from typing import Optional
+from typing import List, Optional
 
 from pyspark.sql import SparkSession
 
 from src.processor import Processor
-from src.config import Config
+from src.config import Config, SourceConfig, TargetConfig
 
 logger = logging.getLogger(__name__)
 logging.basicConfig(
@@ -33,22 +35,23 @@ logging.basicConfig(
 def _parse_args(argv: Optional[list[str]] = None) -> argparse.Namespace:
     """Parse command line arguments."""
     parser = argparse.ArgumentParser(
-        description="Spark Streaming Mini-Batch Job (flights DMS CDC)",
+        description="Glue Job — Multi-table Batch + Streaming DMS CDC",
     )
     parser.add_argument(
-        "--origins_s3_path",
+        "--config_s3_path",
         required=True,
-        help="S3 path to origins.json (source config)",
-    )
-    parser.add_argument(
-        "--target_s3_path",
-        required=True,
-        help="S3 path to target.json (destination table config)",
+        help="S3 path to config.json (all table definitions with sources + targets)",
     )
     parser.add_argument(
         "--conf",
         default="",
         help="Spark config key=value pairs separated by space",
+    )
+    parser.add_argument(
+        "--mode",
+        choices=["streaming", "batch"],
+        default="streaming",
+        help="Execution mode: 'batch' processes all tables sequentially, 'streaming' starts concurrent queries (default: streaming)",
     )
     return parser.parse_args(argv)
 
@@ -94,7 +97,7 @@ def _init_spark(spark_configs: dict[str, str] | None = None) -> SparkSession:
 
 def main() -> None:
     """Application entry point."""
-    logger.info("Initialising Spark Streaming Mini-Batch Job")
+    logger.info("Initialising Glue Job — multi-table batch / streaming")
 
     # 1. Parse arguments
     try:
@@ -104,9 +107,9 @@ def main() -> None:
         sys.exit(1)
 
     logger.info(
-        "Arguments: origins=%s target=%s",
-        args.origins_s3_path,
-        args.target_s3_path,
+        "Arguments: config=%s mode=%s",
+        args.config_s3_path,
+        args.mode,
     )
 
     # 2. Parse Spark configs from --conf and initialise Spark dynamically
@@ -115,64 +118,145 @@ def main() -> None:
     spark = _init_spark(spark_configs)
     logger.info("Spark session created — version %s", spark.version)
 
-    # 3. Load configuration (source + target from separate S3 files)
+    # 3. Load configuration (single config.json with all tables)
     try:
-        config = Config.from_s3(args.origins_s3_path, args.target_s3_path)
+        config = Config.from_s3(args.config_s3_path)
+        source_list = config.sources  # sorted by order
         logger.info(
-            "Configuration loaded: source=%s | target=%s.%s",
-            config.source.source,
-            config.target.database,
-            config.target.table,
+            "Configuration loaded: %d table(s) to process",
+            len(source_list),
         )
+        for s in source_list:
+            logger.info(
+                "  [%d] %s → %s.%s",
+                s.order, s.source, s.target.database, s.target.table,
+            )
     except Exception as exc:
         logger.error("Failed to load configuration: %s", exc)
         sys.exit(1)
 
-    # 4. Create pipeline processor and run in streaming mode
+    # 4. Create pipeline processor
     processor = Processor(spark)
-    _run_streaming(spark, processor, config)
+
+    # 5. Run in the requested mode
+    if args.mode == "batch":
+        _run_batch(spark, processor, source_list)
+    else:
+        _run_streaming(spark, processor, source_list)
 
     logger.info("Pipeline completed successfully")
 
 
-def _run_streaming(spark: SparkSession, processor: Processor, config: Config) -> None:
+def _run_streaming(
+    spark: SparkSession,
+    processor: Processor,
+    sources: List[SourceConfig],
+) -> None:
     """
-    Run the pipeline in streaming mode using forEachBatch.
+    Start one streaming query per table, all running concurrently.
 
-    Each micro-batch is processed through the full Processor pipeline.
+    Each table uses its own checkpoint location and CDC source path.
+    The job stays alive until all queries terminate.
     """
     from pyspark.sql import DataFrame
 
-    source = config.source
-    target = config.target
+    queries = []
+    for source in sources:
+        target = source.target
+        logger.info(
+            "Starting streaming for table %s → %s.%s",
+            source.source, target.database, target.table,
+        )
 
-    stream_df = processor._reader.read(source)
+        stream_df = processor._reader.read(source, mode="streaming")
 
-    def process_batch(df: DataFrame, batch_id: int) -> None:
-        """Process a single micro-batch through the pipeline."""
-        logger.info("Processing batch_id=%d with %d rows", batch_id, df.count())
+        # Closure captures current source + target
+        def process_batch(
+            df: DataFrame,
+            batch_id: int,
+            src: SourceConfig = source,
+            tgt: TargetConfig = target,
+        ) -> None:
+            """Process a single micro-batch through the pipeline."""
+            logger.info(
+                "[%s] batch_id=%d with %d rows",
+                src.source, batch_id, df.count(),
+            )
+            try:
+                valid_df, rejects_df = processor._data_quality.validate(df, tgt, src)
+                processor._writer.write_rejects(rejects_df, tgt)
+                processor._writer.write(valid_df, tgt, src)
+                logger.info("[%s] batch %d done", src.source, batch_id)
+            except Exception as exc:
+                logger.error(
+                    "[%s] batch %d failed: %s",
+                    src.source, batch_id, exc, exc_info=True,
+                )
+                raise
+
+        query = (
+            stream_df.writeStream
+            .foreachBatch(process_batch)
+            .outputMode("append")
+            .trigger(processingTime="5 minutes")
+            .option("checkpointLocation", source.checkpoint_location)
+            .start()
+        )
+        queries.append(query)
+        logger.info("Query started for %s (checkpoint: %s)", source.source, source.checkpoint_location)
+
+    # Keep the job alive — await any termination
+    for q in queries:
+        q.awaitTermination()
+
+
+def _run_batch(
+    spark: SparkSession,
+    processor: Processor,
+    sources: List[SourceConfig],
+) -> None:
+    """
+    Process all tables sequentially in batch mode.
+
+    Each table is read, validated, written, and registered before
+    moving to the next. Processing order follows the ``order`` field
+    in config.json.
+    """
+    total = len(sources)
+    logger.info("Running batch mode — %d table(s) to process", total)
+
+    for idx, source in enumerate(sources, start=1):
+        target = source.target
+        logger.info(
+            "[%d/%d] Processing table: %s → %s.%s",
+            idx, total, source.source,
+            target.database, target.table,
+        )
+
         try:
-            # Run validation + write for this batch
-            valid_df, rejects_df = processor._data_quality.validate(df, target, source)
+            # Read all full-load files for this table
+            raw_df = processor._reader.read(source, mode="batch")
+            row_count = raw_df.count()
+            logger.info(
+                "[%d/%d] Read %d rows from %s",
+                idx, total, row_count, source.source,
+            )
 
-            # Write rejected + valid data
-            processor._writer.write_rejects(rejects_df, target)
-            processor._writer.write(valid_df, target, source)
-            logger.info("Batch %d processed successfully", batch_id)
+            # Run full pipeline with the pre-read DataFrame
+            processor.run(source, target, mode="batch", dataframe=raw_df)
+
+            logger.info(
+                "[%d/%d] Table %s completed successfully",
+                idx, total, source.source,
+            )
         except Exception as exc:
-            logger.error("Batch %d failed: %s", batch_id, exc, exc_info=True)
-            raise
-
-    query = (
-        stream_df.writeStream
-        .foreachBatch(process_batch)
-        .outputMode("append")
-        .trigger(processingTime="60 seconds")
-        .option("checkpointLocation", source.checkpoint_location)
-        .start()
-    )
-
-    query.awaitTermination()
+            logger.error(
+                "[%d/%d] Table %s FAILED: %s — continuing with next table",
+                idx, total, source.source, exc, exc_info=True,
+            )
+            # Continue with the next table so one failure doesn't
+            # block the remaining tables.
+            continue
 
 
 if __name__ == "__main__":

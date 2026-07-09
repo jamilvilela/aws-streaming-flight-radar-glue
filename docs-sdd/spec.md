@@ -1,76 +1,119 @@
 ---
 id: spec-glue-streaming-dms-cdc
-title: Specification — Glue Job Streaming Mini-Batch DMS CDC (tbl_opensky_flights)
+title: Specification — Glue Job Batch + Streaming DMS CDC (tbl_opensky_flights)
 status: draft
-version: 1.0
+version: 2.0
 created: 2026-07-02
 updated: 2026-07-02
 author: Data Engineering Team
 ---
 
-# Specification — Glue Streaming Mini-Batch DMS CDC
+# Specification — Glue Batch + Streaming DMS CDC
 
-> Gerado a partir de `agents.md` e `PRD.md`.
+> Generated from `agents.md` and `PRD.md`.
 
-## 1. Visão Geral
+## 1. Overview
 
-Pipeline de processamento CDC (Change Data Capture) usando **AWS Glue 5.1 (PySpark 4.0)** com **pure Spark** (sem GlueContext, DynamicFrame ou Job API). Leitura streaming de arquivos Parquet do bucket landing, validação em 5 etapas, escrita no Data Lake (camada raw) e registro de métricas/controle.
+CDC (Change Data Capture) processing pipeline using **AWS Glue 5.1 (PySpark 4.0)** with **pure Spark** (no GlueContext, DynamicFrame, or Job API). Operates in **two modes**:
 
-### Stack Tecnológica
+- **Batch mode (full load):** Runs when DMS completes the initial load. Processes all tables **sequentially** in the order defined by the `order` field in config.json.
+- **Streaming mode (CDC):** Runs continuously after the full load. Starts **N concurrent queries** (one per table), each reading its CDC prefix via `readStream` with `forEachBatch`.
 
-| Componente | Versão |
+Both modes share the same `main.py` script, differentiated by the `--mode` parameter.
+
+### Technology Stack
+
+| Component | Version |
 |------------|--------|
 | AWS Glue | 5.1 |
 | Apache Spark | 4.0 |
 | Python | 3.10+ |
-| Formato | **Delta Lake** (target) / Parquet (rejects) |
-| Infraestrutura | Terraform ≥ 1.5 |
-| Testes | pytest + boto3 |
+| Format | **Delta Lake** (target) / Parquet (rejects) |
+| Infrastructure | Terraform ≥ 1.5 |
+| Tests | pytest + boto3 |
 
-## 2. Arquitetura
+## 2. Architecture
 
 ```
-┌─────────────────────────────────────────────────────────────────────┐
-│                        S3 Landing (DMS Parquet)                     │
-│  s3://lakehouse-landing-{account}/dms/flightradar/flight_radar/    │
-└────────────────────────┬────────────────────────────────────────────┘
-                         │ readStream (maxFilesPerTrigger=1)
+┌──────────────────────────────────────────────────────────────────────────┐
+│                    DMS Task (full-load-and-cdc)                         │
+│  Aurora PostgreSQL Endpoint → S3 (Parquet) — 5 tables                   │
+└─────────────────────────┬────────────────────────────────────────────────┘
+                          │ CdcPath separates CDC from Full Load (per table)
+                          ▼
+┌──────────────────────────────────────────────────────────────────────────┐
+│              S3 Landing — Per-Table Prefixes + CDC                      │
+│  .../aircraft/ + .../aircraft_cdc/                                      │
+│  .../airports/ + .../airports_cdc/                                      │
+│  .../airlines/ + .../airlines_cdc/                                      │
+│  .../flights/ + .../flights_cdc/                                        │
+│  .../aircraft_positions/ + .../aircraft_positions_cdc/                  │
+└──────┬───────────────────────────────────────────────────────────────────┘
+       │ EventBridge: DMS Full Load Complete
+       ▼
+┌──────────────────────────────────────────────────────────────────────────┐
+│  Glue Batch Job — G.1X, 4 workers, --mode=batch                        │
+│  Processes tables SEQUENTIALLY (order 1..5):                            │
+│    1. aircraft       → Delta Catalog.aircraft                           │
+│    2. airports       → Delta Catalog.airports                           │
+│    3. airlines       → Delta Catalog.airlines                           │
+│    4. flights        → Delta Catalog.flights                            │
+│    5. aircraft_positions → Delta Catalog.aircraft_positions              │
+│  Each table reads from its corresponding full load prefix.              │
+└────────────────────────┬─────────────────────────────────────────────────┘
+                         │ SUCCEEDED
                          ▼
-┌─────────────────────────────────────────────────────────────────────┐
-│  Reader (app/src/dependencies/reader.py)                           │
-│  • Spark readStream puro (sem Glue)                                 │
-│  • cleanSource=archive, checkpoint S3                               │
-│  • Sem job bookmarks, sem batch fallback                            │
-└────────────────────────┬────────────────────────────────────────────┘
-                         │ DataFrame bruto
+┌──────────────────────────────────────────────────────────────────────────┐
+│  Glue CONDITIONAL Trigger (after full load succeeds)                    │
+└────────┬─────────────────────────────────────────────────────────────────┘
+         ▼
+┌──────────────────────────────────────────────────────────────────────────┐
+│  Glue Streaming Job — G.0.25X, 1 worker, --mode=streaming              │
+│  Starts N CONCURRENT queries (one per table):                           │
+│    ├── aircraft       → readStream (CDC) → forEachBatch                 │
+│    ├── airports       → readStream (CDC) → forEachBatch                 │
+│    ├── airlines       → readStream (CDC) → forEachBatch                 │
+│    ├── flights        → readStream (CDC) → forEachBatch                 │
+│    └── aircraft_positions → readStream (CDC) → forEachBatch             │
+│  Each query has trigger(processingTime="5 minutes"), own checkpoint.     │
+└────────────────────────┬─────────────────────────────────────────────────┘
+                         │ Raw DataFrame
                          ▼
-┌─────────────────────────────────────────────────────────────────────┐
-│  DataQuality (app/src/dependencies/data_quality.py)                │
-│  Pipeline de 4 etapas:                                              │
-│  1. _cast_types — converter tipos conforme schema target            │
-│  2. _check_nulls — filtrar nulos em campos NOT NULL                 │
-│  3. _check_enums — validar valores de enum_columns                  │
-│  4. _validate_timestamps — pass-through                             │
-│  **Sem dedup** — unicidade garantida pelo Delta MERGE na escrita    │
-│  Retorna: (valid_df, rejects_df) com metadados de rejeição          │
-└──────────────────────┬──────────────────┬───────────────────────────┘
+┌──────────────────────────────────────────────────────────────────────────┐
+│  Reader (app/src/dependencies/reader.py)                                │
+│  • Batch mode: spark.read.format("parquet").load()                      │
+│  • Streaming mode: spark.readStream.format("parquet")                   │
+│  • includeExistingFiles=false (streaming)                               │
+└────────────────────────┬─────────────────────────────────────────────────┘
+                         │ DataFrame
+                         ▼
+┌──────────────────────────────────────────────────────────────────────────┐
+│  DataQuality (app/src/dependencies/data_quality.py)                     │
+│  4-stage pipeline:                                                        │
+│  1. _cast_types — convert types according to target schema                │
+│  2. _check_nulls — filter nulls in NOT NULL fields                        │
+│  3. _check_enums — validate enum_columns values                           │
+│  4. _validate_timestamps — pass-through                                   │
+│  **No dedup** — uniqueness guaranteed by Delta MERGE on write             │
+│  Returns: (valid_df, rejects_df) with rejection metadata                  │
+└──────────────────────┬──────────────────┬────────────────────────────────┘
                        │ valid_df         │ rejects_df
                        ▼                  ▼
 ┌──────────────────────────────┐   ┌──────────────────────────┐
 │  Writer (app/src/dependencies/   │   │  Writer.write_rejects()  │
-│         writer.py)           │   │  • Salva em Rejected/    │
-│  • **Delta Lake**            │   │  • Com metadados         │
-│  • MERGE por PK composta     │   └──────────────────────────┘
+│         writer.py)           │   │  • Saves to Rejected/    │
+│  • **Delta Lake**            │   │  • With metadata         │
+│  • MERGE by composite PK     │   └──────────────────────────┘
 │  • Partition by event_date   │
-│  • Gera cod_unico            │
+│  • Generates cod_unico       │
 └──────────┬───────────────────┘
            │
            ▼
-┌─────────────────────────────────────────────────────────────────────┐
-│  S3 Raw (tbl_opensky_flights)                                       │
-│  s3://lakehouse-raw-{account}/tables/opensky/flights/              │
-│  Partição: event_date                                               │
-└─────────────────────────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────────────────────┐
+│  S3 Raw (tbl_opensky_flights)                                           │
+│  s3://lakehouse-raw-{account}/tables/opensky/flights/                   │
+│  Partition: event_date                                                    │
+└──────────────────────────────────────────────────────────────────────────┘
 
 ┌──────────────────────────────┐   ┌──────────────────────────────────┐
 │  EtlControl                  │   │  QualityMetrics                  │
@@ -82,9 +125,9 @@ Pipeline de processamento CDC (Change Data Capture) usando **AWS Glue 5.1 (PySpa
 └──────────────────────────────┘   └──────────────────────────────────┘
 ```
 
-## 3. Componentes
+## 3. Components
 
-### 3.1. Config — `app/src/dependencies/config/` (subpacote)
+### 3.1. Config — `app/src/dependencies/config/` (sub-package)
 
 **Dataclasses:**
 - `SchemaField(name, type, comment, nullable)`
@@ -92,79 +135,95 @@ Pipeline de processamento CDC (Change Data Capture) usando **AWS Glue 5.1 (PySpa
 - `CdcConfig(op_column, timestamp_column, order)`
 - `SourceConfig(source, source_location, format, cdc_config, checkpoint_location)`
 - `TargetConfig(catalog, location, rejected_location, format, compression, partition_keys, schema, primary_key, enum_columns, cod_unico_expr)`
-- `Config` com métodos `from_files()`, `from_s3()`, `to_dict()`
+- `Config` with `_sources: List[SourceConfig]`, `source` property (first), `sources` (all), `get_source(name)` method, and `from_files()`, `from_s3()`, `to_dict()` methods
 
-**Arquivos de configuração:**
-| Arquivo | Propósito | Conteúdo |
+**Configuration files:**
+| File | Purpose | Content |
 |---------|-----------|----------|
-| `app/src/dependencies/config/origins.json` | Conexão DMS | source, source_location, format, cdc_config, checkpoint_location |
-| `app/src/dependencies/config/target.json` | Schema destino | catalog, location, partition_keys, schema, primary_key, enum_columns |
+| `app/src/dependencies/config/config.json` | Unified configuration | List of tables with embedded source + target |
 
 ### 3.2. Reader — `app/src/dependencies/reader.py`
-- Leitura **streaming-only** via `spark.readStream.format("parquet")`
-- Configurações: `maxFilesPerTrigger=1`, `cleanSource=archive`, `includeExistingFiles=true`
-- Checkpoint no S3 (`source.checkpoint_location`)
-- **Sem suporte batch**
+- Method `read(source, mode="streaming")` — dispatcher for batch or streaming mode
+- **Streaming mode:** `spark.readStream.format("parquet")` with `maxFilesPerTrigger=1`, `cleanSource=archive`, `includeExistingFiles=true`
+- **Batch mode:** `spark.read.format("parquet").load(source.source_location)` — reads all existing files
+- S3 checkpoint (`source.checkpoint_location`) — streaming only
 
-### 3.3. DataQuality — `app/src/dependencies/data_quality.py`
-- Pipeline de 4 etapas executado sobre DataFrame bruto
-- Usa schema do `TargetConfig` para validação dinâmica
-- **Sem dedup explícito** — unicidade garantida pelo Delta MERGE na escrita
-- Registros rejeitados enriquecidos com `_reject_table`, `_reject_rule`, `_reject_timestamp`
-- Retorna `(valid_df, rejects_df)`
+### 3.3. AwsHelper — `app/src/dependencies/aws_helper.py` (new)
+- Reusable boto3 utility class, decoupled from the pipeline
+- Lazy clients: `s3`, `athena`, `glue`, `sts`, `cloudwatch`
+- `get_account_id()` → returns account ID via STS
+- `run_athena_query(spark, query, database, workgroup, location)` → executes Athena query and returns Spark DataFrame
+- `move_s3_objects(source_bucket, source_prefix, dest_bucket, dest_prefix, pattern, delete_source)` → moves S3 objects with regex filter
+- `put_metric(namespace, metric_name, value, unit, dimensions)` → publishes CloudWatch metric
 
-### 3.4. Writer — `app/src/dependencies/writer.py`
-- Escrita **Delta Lake** com `DeltaTable.forName()` via Glue Catalog
-- Gera `cod_unico` via `F.concat_ws("_", *pk_cols)` para chave do merge
-- Deriva `event_date` via `F.to_date(F.col(partition_col))`
+### 3.4. DataQuality — `app/src/dependencies/data_quality.py`
+- 4-stage pipeline executed on raw DataFrame
+- Uses `TargetConfig` schema for dynamic validation
+- **No explicit dedup** — uniqueness guaranteed by Delta MERGE on write
+- Rejected records enriched with `_reject_table`, `_reject_rule`, `_reject_timestamp`
+- Returns `(valid_df, rejects_df)`
+
+### 3.5. Writer — `app/src/dependencies/writer.py`
+- **Delta Lake** write with `DeltaTable.forName()` via Glue Catalog
+- Generates `cod_unico` via `F.concat_ws("_", *pk_cols)` for merge key
+- Derives `event_date` via `F.to_date(F.col(partition_col))`
 - MERGE: `WHEN NOT MATCHED THEN INSERT` / `WHEN MATCHED THEN UPDATE`
-- **Sem compaction manual** — Delta gerencia via auto-optimize
-- `write_rejects()` para registros rejeitados (formato Parquet)
+- **No manual compaction** — Delta manages via auto-optimize
+- `write_rejects()` for rejected records (Parquet format)
 
-### 3.5. EtlControl — `app/src/dependencies/etl_control.py`
-- Classe separada para registro em `etl_control`
-- Método `register(execution_id, source_name, status, records_read, records_written, records_rejected, target, elapsed_seconds, error_message)`
-- Resolve account_id via boto3 STS
+### 3.6. EtlControl — `app/src/dependencies/etl_control.py`
+- Separate class for registering in `etl_control`
+- Method `register(execution_id, source_name, status, records_read, records_written, records_rejected, target, elapsed_seconds, error_message)`
+- Resolves account_id via boto3 STS
 
-### 3.6. QualityMetrics — `app/src/dependencies/quality_metrics.py`
-- Classe separada para métricas em `data_quality_metrics`
-- Método `save(target, status, records_read, records_written, records_rejected)`
-- Resolve account_id via boto3 STS
+### 3.7. QualityMetrics — `app/src/dependencies/quality_metrics.py`
+- Separate class for metrics in `data_quality_metrics`
+- Method `save(target, status, records_read, records_written, records_rejected)`
+- Resolves account_id via boto3 STS
 
-### 3.7. Processor — `app/src/dependencies/processor.py`
-- Orquestrador do pipeline (8 etapas):
-  1. Load configs (origins + target)
-  2. Read streaming data
-  3. DataQuality.validate()
-  4. Writer.write() dados válidos
-  5. Writer.write_rejects() rejects
-  6. EtlControl.register()
-  7. QualityMetrics.save()
-  8. Logging
+### 3.8. Processor — `app/src/dependencies/processor.py`
+- Pipeline orchestrator
+- Method `run(source, target, mode="streaming", dataframe=None)`
+- In batch mode with pre-read `dataframe`, skips the read step
+- 7-stage pipeline:
+  1. Read via Reader (or uses pre-read DataFrame in batch mode)
+  2. DataQuality.validate()
+  3. Writer.write() valid data
+  4. Writer.write_rejects() rejects
+  5. EtlControl.register()
+  6. QualityMetrics.save()
+  7. Logging
 
-### 3.8. Main — `app/src/main.py`
-- Parse de argumentos via `argparse`: `--origins_s3_path`, `--target_s3_path`, `--conf`
-- `_parse_conf()` converte string "key=val key=val" em dict
-- `_init_spark()` aplica configs dinamicamente
-- Streaming com `forEachBatch` e `trigger(processingTime="60 seconds")`
+### 3.9. Main — `app/src/main.py`
+- Argument parsing via `argparse`: `--config_s3_path`, `--conf`, `--mode` (batch|streaming)
+- `main()`: loads config (`Config.from_s3(args.config_s3_path)`), gets sorted list via `config.sources`, dispatches `_run_batch()` or `_run_streaming()`
+- `_run_batch()`: iterates sources in `order`, reads batch of each table and processes via `Processor.run(mode="batch", dataframe=raw_df)`. Errors in one table do not block the others.
+- `_run_streaming()`: starts **one streaming query per table**, each with `trigger(processingTime="5 minutes")` and own checkpoint. `awaitTermination()` keeps the job alive.
+- `_parse_conf()` converts string "key=val key=val" to dict
+- `_init_spark()` applies configs dynamically
 
-## 4. Infraestrutura (Terraform)
+## 4. Infrastructure (Terraform)
 
-### Recursos (`infra/main.tf`)
-| Nome | Tipo | Descrição |
+### Resources (`infra/main.tf`)
+| Name | Type | Description |
 |------|------|-----------|
-| `aws_kms_key.glue` | KMS Key | Criptografia SSE-KMS/CSE-KMS |
+| `aws_kms_key.glue` | KMS Key | SSE-KMS/CSE-KMS encryption |
 | `aws_kms_alias.glue` | KMS Alias | `alias/glue-streaming-minibatch-dms` |
 | `aws_glue_security_configuration.glue` | Security Config | CloudWatch SSE-KMS, bookmarks CSE-KMS, S3 SSE-KMS |
-| `aws_glue_connection.vpc` | Glue Connection | NETWORK, subnet privada, SG default |
-| `aws_glue_job.streaming_minibatch_dms` | Glue Job | Glue 5.1, Python 3.10, G.1X, 2 workers |
-| `data.archive_file.helpers` | Archive Data | Cria helpers.zip a partir de `app/src/dependencies/` |
-| `aws_s3_object.main_py` | S3 Object | Upload de `main.py` para scripts path |
-| `aws_s3_object.helpers_zip` | S3 Object | Upload de `helpers.zip` para dependencies path |
-| `aws_s3_object.origins_json` | S3 Object | Upload de `origins.json` (com `{account_id}` resolvido) |
-| `aws_s3_object.target_json` | S3 Object | Upload de `target.json` (com `{account_id}` resolvido) |
+| `aws_glue_connection.vpc` | Glue Connection | NETWORK, private subnet, default SG |
+| `aws_glue_job.full_load_batch` | Glue Job (batch) | Glue 5.1, Python 3.10, G.1X, 4 workers, `--mode=batch` — processes N tables sequentially |
+| `aws_glue_job.streaming_minibatch_dms` | Glue Job (streaming) | Glue 5.1, Python 3.10, G.0.25X, 1 worker, `--mode=streaming` — N concurrent queries |
+| `aws_iam_role.eventbridge_invoke_glue` | IAM Role | Role for EventBridge to invoke Glue |
+| `aws_iam_role_policy.eventbridge_invoke_glue` | IAM Policy | Permission `glue:StartJobRun` on full_load_batch job |
+| `aws_cloudwatch_event_rule.dms_full_load_complete` | EventBridge Rule | DMS full load completed event (source=aurora-postgresql) |
+| `aws_cloudwatch_event_target.start_glue_batch` | EventBridge Target | Triggers `full_load_batch` via StartJobRun |
+| `aws_glue_trigger.start_streaming_after_full_load` | Glue Trigger | CONDITIONAL — starts streaming CDC after batch succeed |
+| `data.archive_file.helpers` | Archive Data | Creates helpers.zip from `app/src/dependencies/` |
+| `aws_s3_object.main_py` | S3 Object | Uploads `main.py` to scripts path |
+| `aws_s3_object.helpers_zip` | S3 Object | Uploads `helpers.zip` to dependencies path |
+| `aws_s3_object.config_json` | S3 Object | Uploads `config.json` (with `{account_id}` resolved) |
 
-### Spark Configs Dinâmicas (`locals.tf → spark_conf`)
+### Dynamic Spark Configs (`locals.tf → spark_conf`)
 - `spark.sql.adaptive.enabled` = true
 - `spark.sql.adaptive.coalescePartitions.enabled` = true
 - `spark.sql.adaptive.skewJoin.enabled` = true
@@ -181,76 +240,98 @@ Pipeline de processamento CDC (Change Data Capture) usando **AWS Glue 5.1 (PySpa
   - `spark.databricks.delta.properties.defaults.autoOptimize.optimizeWrite` = true
   - `spark.databricks.delta.properties.defaults.autoOptimize.autoCompact` = true
 
-### Dados Existentes (data sources)
+### Existing Data Sources
 - IAM Role: `role-datalake-analytics`
 - VPC: default (`vpc-022139f6bee3cbdd5`)
-- Subnets: privadas em us-east-1a/b/c
+- Subnets: private in us-east-1a/b/c
 - Security Group: default (`sg-0f885f9d1473a7777`)
 
-> ⚠️ Databases e tabelas Glue Catalog não são gerenciados por este módulo.
+> ⚠️ Glue Catalog databases and tables are not managed by this module.
 
 ## 5. Scripts
 
 ### `scripts/setup-env.sh`
-- Verifica pré-requisitos (Terraform, AWS CLI, jq)
-- Inicializa Terraform com backend S3
-- Seleciona workspace
-- Aplica Terraform (upload de artefatos é feito pelos `aws_s3_object` resources)
+- Checks prerequisites (Terraform, AWS CLI, jq)
+- Initializes Terraform with S3 backend
+- Selects workspace
+- Applies Terraform (artifact upload is done by `aws_s3_object` resources)
 
 ### `scripts/rollback-setup.sh`
-- Confirma rollback
-- Executa `terraform destroy`
-- **Não** remove arquivos do S3
+- Confirms rollback
+- Runs `terraform destroy`
+- Does **not** remove S3 files
 
-## 6. Glue Job Parâmetros
+## 6. Glue Job Parameters
 
-| Parâmetro | Descrição | Obrigatório |
-|-----------|-----------|-------------|
-| `--origins_s3_path` | Caminho S3 do origins.json | Sim |
-| `--target_s3_path` | Caminho S3 do target.json | Sim |
-| `--conf` | Spark configs (key=val key=val) | Não |
+| Parameter | Description | Required | Default |
+|-----------|-----------|-------------|---------|
+| `--config_s3_path` | S3 path to config.json (all tables with source + target) | Yes | — |
+| `--conf` | Spark configs (key=val key=val) | No | "" |
+| `--mode` | Execution mode: `batch` (sequential) \| `streaming` (concurrent) | No | `streaming` |
 
-## 7. Tabelas no Data Lake
+## 7. Data Lake Tables
 
-| Tabela | Database | Finalidade | Partição |
+| Table | Database | Purpose | Partition |
 |--------|----------|-----------|----------|
-| `tbl_opensky_flights` | `db_raw` | Dados de voos processados | `event_date` |
-| `etl_control` | `db_raw` | Controle de execuções | `reference_date` |
-| `data_quality_metrics` | `db_raw` | Métricas de qualidade | `reference_date` |
+| `tbl_opensky_flights` | `db_raw` | Processed flight data | `event_date` |
+| `etl_control` | `db_raw` | Execution control | `reference_date` |
+| `data_quality_metrics` | `db_raw` | Quality metrics | `reference_date` |
 
-## 8. Convenções
+## 8. Conventions
 
-- **Buckets**: nomeados com account ID: `lakehouse-{tier}-{account_id}`
-- **Formato**: Parquet + Snappy
+- **Buckets**: named with account ID: `lakehouse-{tier}-{account_id}`
+- **Format**: Parquet + Snappy
 - **IAM**: role `role-datalake-analytics`
-- **Spark**: pure Spark, sem APIs Glue
-- **Configs**: dois JSONs separados (origem vs destino)
-- **Streaming**: apenas readStream, sem batch
-- **Bookmarks**: não utilizado (usa `cleanSource=archive`)
+- **Spark**: pure Spark, no Glue APIs
+- **Configs**: unified config.json (5 tables with embedded source + target)
+- **Streaming + Batch**: same `main.py` script, differentiated by `--mode`
+- **Bookmarks**: not used (uses `cleanSource=archive`)
+- **Separate S3 prefixes**: DMS `CdcPath` writes CDC to a distinct prefix to avoid reprocessing
+- **Two job definitions**: batch (G.1X, 4 workers) and streaming (G.0.25X, 1 worker) — share the same script
 
-## 9. Qualidade de Dados
+## 9. Event Flow
 
-Pipeline de 5 etapas em `DataQuality`:
+```mermaid
+sequenceDiagram
+    participant DMS as DMS Task
+    participant EB as EventBridge
+    participant Batch as Glue Batch Job
+    participant Trigger as Glue Trigger
+    participant Stream as Glue Streaming Job
 
-| Etapa | Função | Descrição |
+    DMS->>EB: Full Load Completed (5 tables)
+    EB->>Batch: StartJobRun (--mode=batch)
+    Note over Batch: Processes tables SEQUENTIALLY (order 1..5)
+    Batch-->>Trigger: Job Succeeded
+    Trigger->>Stream: StartJobRun (--mode=streaming)
+    Note over Stream: Starts N CONCURRENT queries (one per table)
+    Note over DMS: DMS continues writing CDC to separate prefixes (CdcPath)
+```
+
+## 11. Data Quality
+
+4-stage pipeline in `DataQuality`:
+
+| Stage | Function | Description |
 |-------|--------|-----------|
-| 1 | `_cast_types` | Converte colunas para os tipos do target schema |
-| 2 | `_check_nulls` | Remove registros com nulos em campos obrigatórios |
-| 3 | `_check_enums` | Valida valores contra lista permitida em `enum_columns` |
-| 4 | `_remove_duplicates` | Remove duplicatas por `primary_key`, ordenando por CDC |
-| 5 | `_validate_timestamps` | Valida timestamps (pass-through atual) |
+| 1 | `_cast_types` | Converts columns to target schema types |
+| 2 | `_check_nulls` | Removes records with nulls in required fields |
+| 3 | `_check_enums` | Validates values against allowed list in `enum_columns` |
+| 4 | `_validate_timestamps` | Validates timestamps (current pass-through) |
 
-## 10. Testes
+> **Note:** The `_remove_duplicates` stage was removed — uniqueness is guaranteed by Delta MERGE on write (Writer).
 
-### Unitários (`tests/unit/`)
-- `test_config.py`: from_files, from_s3, to_dict, JSON inválido
+## 12. Tests
+
+### Unit (`tests/unit/`)
+- `test_config.py`: from_files, from_s3, to_dict, invalid JSON
 - `test_reader.py`: streaming read, checkpoint config, schema
-- `test_data_quality.py`: 5 etapas, rejects, tipos, enums, nulos, dedup
-- `test_writer.py`: escrita Parquet, partições, compaction, rejects
-- `test_processor.py`: pipeline completo mockado
+- `test_data_quality.py`: 5 stages, rejects, types, enums, nulls, dedup
+- `test_writer.py`: Parquet write, partitions, compaction, rejects
+- `test_processor.py`: full mocked pipeline
 
-### Integração (`tests/integration/`)
-- `conftest.py`: fixtures boto3 (S3, Glue)
-- `test_s3_landing.py`: estrutura do bucket landing
-- `test_glue_catalog.py`: existência de databases e tabelas
-- `test_pipeline_e2e.py`: pipeline completo com dados reais
+### Integration (`tests/integration/`)
+- `conftest.py`: boto3 fixtures (S3, Glue)
+- `test_s3_landing.py`: landing bucket structure
+- `test_glue_catalog.py`: databases and tables existence
+- `test_pipeline_e2e.py`: complete pipeline with real data

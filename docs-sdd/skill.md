@@ -1,141 +1,143 @@
 ---
 name: glue-streaming-minibatch-dms-cdc
 description: >-
-  Criação de Glue Job streaming mini-batch para ingestão de dados CDC do AWS DMS
-  (entidade tbl_opensky_flights), com leitura em S3, validação de qualidade e escrita no
-  Data Lake (camada raw) em formato Delta Lake com MERGE para dedup cross-batch.
+  Glue Job streaming mini-batch for CDC data ingestion from AWS DMS
+  (entity tbl_opensky_flights), with S3 reading, quality validation and writing to
+  Data Lake (raw layer) in Delta Lake format with MERGE for cross-batch dedup.
 ---
 
-# Skill: Glue Streaming Mini-Batch com DMS CDC
+# Skill: Glue Streaming Mini-Batch with DMS CDC
 
-## Propósito
-Implementar um job **AWS Glue 5.1 (PySpark 4.0)** para processar dados de **CDC (Change Data Capture)** replicados pelo **AWS DMS Serverless** no bucket **landing** — tabela `tbl_opensky_flights` — aplicar regras de qualidade, e escrever no **Data Lake** (camada raw) no formato **Parquet + Snappy**.
+## Purpose
+Implement an **AWS Glue 5.1 (PySpark 4.0)** job to process **CDC (Change Data Capture)** data replicated by **AWS DMS Serverless** in the **landing** bucket — table `tbl_opensky_flights` — apply quality rules, and write to the **Data Lake** (raw layer) in **Parquet + Snappy** format.
 
-## Stack Tecnológica
+## Technology Stack
 
-| Componente | Versão |
+| Component | Version |
 |------------|--------|
 | AWS Glue | **5.1** |
 | Apache Spark | **4.0** |
 | Python | **3.10+** |
-| Formato | **Delta Lake** (target) / Parquet (rejects) |
-| Testes | pytest + boto3 (integração) |
-| APIs Glue | **NÃO utilizadas** (pure Spark) |
+| Format | **Delta Lake** (target) / Parquet (rejects) |
+| Tests | pytest + boto3 (integration) |
+| Glue APIs | **NOT used** (pure Spark) |
 
-## Arquitetura do Job
+## Job Architecture
 
 ```
 S3 Landing (DMS Parquet — tbl_opensky_flights/)
         │
         ▼
    ┌──────────┐
-   │  Reader   │ (Spark readStream — streaming-only, sem bookmarks)
+   │  Reader   │ (Spark readStream — streaming-only, no bookmarks)
    └─────┬────┘
-         │ DataFrame bruto
+         │ Raw DataFrame
          ▼
    ┌───────────┐
-   │ DataQuality│ (cleansing, validação de schema, rejects — 4 etapas)
+   │ DataQuality│ (cleansing, schema validation, rejects — 4 stages)
    └─────┬─────┘
-         │ DataFrame validado
+         │ Validated DataFrame
          ▼
    ┌──────────┐
-   │  Writer   │ (Delta MERGE por PK composta + partições)
+   │  Writer   │ (Delta MERGE by composite PK + partitions)
    └─────┬────┘
          │
          ▼
    S3 Raw (Delta table — tbl_opensky_flights)
 
    ┌──────────────┐
-   │  EtlControl   │  ← registro de cada execução (classe separada)
+   │  EtlControl   │  ← execution log (separate class)
    └──────────────┘
    ┌──────────────────────┐
-   │  QualityMetrics      │  ← métricas de qualidade (classe separada)
+   │  QualityMetrics      │  ← quality metrics (separate class)
    └──────────────────────┘
 ```
 
-## Infraestrutura (Terraform)
+## Infrastructure (Terraform)
 
-O módulo Terraform em `infra/` gerencia todos os recursos AWS necessários:
+The Terraform module in `infra/` manages all required AWS resources:
 
-| Recurso | Descrição |
+| Resource | Description |
 |---------|-----------|
-| `aws_kms_key.glue` | KMS key para criptografia SSE-KMS/CSE-KMS |
+| `aws_kms_key.glue` | KMS key for SSE-KMS/CSE-KMS encryption |
 | `aws_glue_security_configuration.glue` | Security config (CloudWatch, bookmarks, S3) |
-| `aws_glue_connection.vpc` | Conexão VPC (subnet privada, security group default) |
+| `aws_glue_connection.vpc` | VPC connection (private subnet, default security group) |
 | `aws_glue_job.streaming_minibatch_dms` | Glue job (Glue 5.1, Spark 4.0, Python 3.10) |
-| `data.archive_file.helpers` + `aws_s3_object.*` | Cria helpers.zip e faz upload declarativo de scripts + configs para S3 |
+| `data.archive_file.helpers` + `aws_s3_object.*` | Creates helpers.zip and declarative upload of scripts + configs to S3 |
 
-> ⚠️ Databases e tabelas Glue Catalog não são gerenciados por este módulo — já existem no Data Lake.
+> ⚠️ Glue Catalog databases and tables are not managed by this module — they already exist in the Data Lake.
 
-### Spark Configs Dinâmicas
+### Dynamic Spark Configs
 
-As configurações Spark são definidas no `locals.tf` como um mapa `spark_properties` e convertidas em string `--conf` (formato `key=value key=value ...`). O `main.py` faz o parse desta string via `_parse_conf()` e aplica cada propriedade dinamicamente ao `SparkSession.builder`, sem valores hardcoded.
+Spark configs are defined in `locals.tf` as a `spark_properties` map and converted to a `--conf` string (format `key=value key=value ...`). `main.py` parses this string via `_parse_conf()` and applies each property dynamically to `SparkSession.builder`, with no hardcoded values.
 
 Data sources: IAM role `role-datalake-analytics`, default VPC, subnets, security group.
 
 ## Componentes
 
 ### 1. `main.py` — Entry Point
-- Inicializa `SparkSession` puro (sem GlueContext, sem Glue Job API)
-- Parseia argumentos: `--origins_s3_path`, `--target_s3_path`, `--conf`
-- Aplica **Spark configs de otimização** dinamicamente via `--conf`
-- Executa streaming com `forEachBatch` (trigger `processingTime="60 seconds"`)
-- Instancia a classe `Processor` e executa o pipeline em cada micro-batch
+- Initializes pure `SparkSession` (no GlueContext, no Glue Job API)
+- Parses arguments: `--config_s3_path`, `--conf`, `--mode` (batch|streaming)
+- Applies **Spark optimization configs** dynamically via `--conf`
+- Batch mode: processes N tables **sequentially** (`order` field)
+- Streaming mode: starts **N concurrent queries** (one per table) with `trigger(processingTime="5 minutes")`
+- Instantiates the `Processor` class and executes the pipeline in each micro-batch
 
-### 2. `config.py` — Leitura de Configuração (dataclasses)
-- Lê **dois** arquivos JSON separados: `origins.json` (conexão origem DMS) e `target.json` (schema destino)
-- Utiliza **dataclasses** do Python para modelar `SourceConfig` e `TargetConfig`
-- `SourceConfig`: `source`, `source_location`, `format`, `cdc_config`, `checkpoint_location`
-- `TargetConfig`: `catalog` (database, table), `location`, `rejected_location`, `format`, `compression`, `partition_keys`, `schema`, `primary_key`, `enum_columns`, `cod_unico_expr` (expressão para gerar `cod_unico` via concatenação da PK)
-- Métodos `from_files()` (local) e `from_s3()` (S3)
+### 2. `config_models.py` — Configuration Models (dataclasses)
+- Defines dataclasses for `SchemaField`, `PartitionKey`, `CdcConfig`, `TargetConfig`, `SourceConfig`, `Config`
+- Reads a **single** `config.json` with all tables (embedded source + target)
+- `SourceConfig`: `source`, `order`, `source_location`, `cdc_source_location`, `format`, `cdc_config`, `checkpoint_location`, `target`
+- `TargetConfig`: `catalog` (database, table), `location`, `rejected_location`, `format`, `compression`, `partition_keys`, `schema`, `primary_key`, `enum_columns`, `cod_unico_expr`
+- `Config`: `sources` (list sorted by `order`), methods `from_file()` (local) and `from_s3()` (S3)
+- Re-exported via `config/__init__.py` for backward compatibility
 
-### 3. `Reader` — Leitura dos Dados (streaming-only)
-- Lê arquivos Parquet do S3 (DMS CDC) exclusivamente em modo **streaming**
-- **Sem suporte batch** — sempre usa `spark.readStream`
-- **Sem job bookmarks** — usa `cleanSource=archive` e checkpoint location no S3
-- `maxFilesPerTrigger=1` para controle de micro-batches
-- `includeExistingFiles=true` para processar arquivos existentes
-- Retorna `DataFrame` Spark bruto
+### 3. `Reader` — Data Reading (streaming + batch)
+- Reads Parquet files from S3 (DMS CDC) in **streaming** or **batch** mode
+- **Streaming:** uses `spark.readStream` with `cleanSource=archive` and S3 checkpoint
+- **Batch:** uses `spark.read.format("parquet").load()` to read all existing files
+- `maxFilesPerTrigger=1` for micro-batch control
+- `includeExistingFiles=false` (streaming) to avoid re-processing full load files
+- Returns raw Spark `DataFrame`
 
-### 4. `data_quality.py` — Qualidade e Validação
-- Recebe DataFrame bruto e schema alvo (do `TargetConfig`)
-- Pipeline de 4 etapas:
-  1. **Cast de tipos** — converte colunas conforme schema do target
-  2. **Null check** — filtra nulos em campos NOT NULL
-  3. **Enum validation** — valida valores de `enum_columns`
-  4. **Timestamp validation** — valida timestamps (pass-through)
-- **Sem dedup explícito** — a unicidade é garantida pelo Delta MERGE na escrita (Writer)
-- Registros **inválidos** são escritos em `Rejected/` com metadados (`_reject_table`, `_reject_rule`, `_reject_timestamp`)
-- Retorna tuple: `(DataFrame válido, DataFrame rejects)`
-- **Funcionamento dinâmico**: lê o schema do JSON de configuração, permitindo validar qualquer origem sem alteração de código
+### 4. `data_quality.py` — Quality and Validation
+- Receives raw DataFrame and target schema (from `TargetConfig`)
+- 4-stage pipeline:
+  1. **Cast types** — converts columns according to target schema
+  2. **Null check** — filters nulls in NOT NULL fields
+  3. **Enum validation** — validates `enum_columns` values
+  4. **Timestamp validation** — validates timestamps (pass-through)
+- **No explicit dedup** — uniqueness guaranteed by Delta MERGE on write (Writer)
+- **Invalid** records are written to `Rejected/` with metadata (`_reject_table`, `_reject_rule`, `_reject_timestamp`)
+- Returns tuple: `(valid DataFrame, rejects DataFrame)`
+- **Dynamic operation**: reads schema from JSON config, allowing validation of any source without code changes
 
-### 5. `writer.py` — Escrita no Data Lake (Delta Lake)
-- Recebe DataFrame válido e metadados da tabela alvo
-- Gera coluna `cod_unico` via `F.concat_ws("_", *pk_cols)` para a chave de merge
-- Escreve no formato **Delta Lake** no bucket **raw**
-- Usa **Delta MERGE** (`DeltaTable.forName().merge()`) via Glue Catalog com base na PK composta para garantir unicidade cross-batch
-- Particiona os dados por `event_date` (derivado de coluna timestamp via `F.to_date()`)
-- **Sem necessidade de compaction** — Delta Lake gerencia otimização automaticamente via `OPTIMIZE` e auto-compact
-- Suporta escrita de rejects com `write_rejects()` (formato Parquet)
+### 5. `writer.py` — Data Lake Write (Delta Lake)
+- Receives valid DataFrame and target table metadata
+- Generates `cod_unico` column via `F.concat_ws("_", *pk_cols)` for merge key
+- Writes in **Delta Lake** format to the **raw** bucket
+- Uses **Delta MERGE** (`DeltaTable.forName().merge()`) via Glue Catalog based on composite PK for cross-batch uniqueness
+- Partitions data by `event_date` (derived from timestamp column via `F.to_date()`)
+- **No compaction needed** — Delta Lake manages optimization automatically via `OPTIMIZE` and auto-compact
+- Supports writing rejects with `write_rejects()` (Parquet format)
 
-### 6. `etl_control.py` — Registro de Execução
-- Classe separada responsável por escrever metadados na tabela `etl_control`
-- Registra: `execution_id`, `source_name`, `status`, `records_read`, `records_written`, `records_rejected`, `elapsed_seconds`, `error_message`
-- Resolve caminhos S3 e account_id dinamicamente via `boto3`
+### 6. `etl_control.py` — Execution Log
+- Separate class responsible for writing metadata to the `etl_control` table
+- Records: `execution_id`, `source_name`, `status`, `records_read`, `records_written`, `records_rejected`, `elapsed_seconds`, `error_message`
+- Resolves S3 paths and account_id dynamically via `boto3`
 
-### 7. `quality_metrics.py` — Métricas de Qualidade
-- Classe separada responsável por salvar métricas em `data_quality_metrics`
-- Registra: `rows_read`, `rows_written`, `rows_rejected`, `pipeline_status`
-- Utiliza `SparkSession` para escrever no Glue Catalog
+### 7. `quality_metrics.py` — Quality Metrics
+- Separate class responsible for saving metrics to `data_quality_metrics`
+- Records: `rows_read`, `rows_written`, `rows_rejected`, `pipeline_status`
+- Uses `SparkSession` to write to Glue Catalog
 
-### 8. `processor.py` — Orquestrador
-- Coordena o pipeline completo: Config → Reader → DataQuality → Writer → EtlControl → QualityMetrics
-- Método `run(source, target)` executa pipeline com 6 etapas: Read → Validate → Write Rejects → Write (Delta MERGE) → Register → Metrics
-- Delega `_register_execution` ao `EtlControl` e `_save_quality_metrics` ao `QualityMetrics`
+### 8. `processor.py` — Orchestrator
+- Coordinates the full pipeline: Config → Reader → DataQuality → Writer → EtlControl → QualityMetrics
+- Method `run(source, target)` executes 6-stage pipeline: Read → Validate → Write Rejects → Write (Delta MERGE) → Register → Metrics
+- Delegates `_register_execution` to `EtlControl` and `_save_quality_metrics` to `QualityMetrics`
 
-## Spark Configs de Otimização
+## Spark Optimization Configs
 
-As configurações Spark são definidas em `infra/locals.tf` no mapa `spark_properties`:
+Spark configs are defined in `infra/locals.tf` in the `spark_properties` map:
 
 - `spark.sql.adaptive.enabled` = true (AQE)
 - `spark.sql.adaptive.coalescePartitions.enabled` = true
@@ -151,29 +153,29 @@ As configurações Spark são definidas em `infra/locals.tf` no mapa `spark_prop
 - `spark.memory.offHeap.size` = 2g
 - `spark.dynamicAllocation.enabled` = true
 
-## Convenções do Data Lake
+## Data Lake Conventions
 
-| Camada | Bucket | Database | Formato |
+| Layer | Bucket | Database | Format |
 |--------|--------|----------|---------|
 | Landing | `lakehouse-landing-{account_id}` | — | Parquet (DMS) |
 | Raw | `lakehouse-raw-{account_id}` | `db_raw` | **Delta Lake** (target) / Parquet (rejects) |
 | Workspace | `lakehouse-workspace-{account_id}` | — | Scripts, configs, checkpoints |
 
-## Tabelas Envolvidas
+## Involved Tables
 
-| Tabela | Finalidade | Partições |
+| Table | Purpose | Partitions |
 |--------|-----------|-----------|
-| `tbl_opensky_flights` (raw) | Dados de voos processados do CDC | `event_date` |
-| `etl_control` (raw) | Controle de execuções do Glue Job | `reference_date` |
-| `data_quality_metrics` (raw) | Métricas de qualidade | `reference_date` |
+| `tbl_opensky_flights` (raw) | Processed CDC flight data | `event_date` |
+| `etl_control` (raw) | Glue Job execution control | `reference_date` |
+| `data_quality_metrics` (raw) | Quality metrics | `reference_date` |
 
-## Parâmetros do Glue Job
+## Glue Job Parameters
 
-| Parâmetro | Descrição | Exemplo |
+| Parameter | Description | Example |
 |-----------|-----------|---------|
-| `--origins_s3_path` | Caminho S3 do JSON de configuração da origem | `s3://.../config/origins.json` |
-| `--target_s3_path` | Caminho S3 do JSON de configuração do target | `s3://.../config/target.json` |
-| `--conf` | Spark configs dinâmicas (key=val key=val ...) | `spark.sql.shuffle.partitions=200 ...` |
+| `--config_s3_path` | S3 path to unified config.json (all tables) | `s3://.../config/config.json` |
+| `--mode` | Execution mode: `batch` or `streaming` | `batch` |
+| `--conf` | Dynamic Spark configs (key=val key=val ...) | `spark.sql.shuffle.partitions=200 ...` |
 
 ## IAM Role
-`role-datalake-analytics` — permissões mínimas para ler landing, escrever raw, acessar Glue Catalog e KMS.
+`role-datalake-analytics` — minimum permissions to read landing, write raw, access Glue Catalog and KMS.

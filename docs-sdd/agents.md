@@ -1,102 +1,101 @@
 ---
 name: glue-streaming-agents
-description: Agentes especializados para implementação do Glue Job streaming mini-batch DMS CDC (tbl_opensky_flights)
+description: Specialized agents for implementing the Glue Job streaming mini-batch DMS CDC (tbl_opensky_flights)
 ---
 
 # Agents — Glue Streaming Mini-Batch DMS CDC (tbl_opensky_flights)
 
-## Agente: `glue-job-builder`
-**Propósito:** Implementar o código PySpark do Glue Job (main.py, processor, config, reader, data_quality, writer, etl_control, quality_metrics)
+## Agent: `glue-job-builder`
+**Purpose:** Implement Glue Job PySpark code (main.py, processor, config, reader, data_quality, writer, etl_control, quality_metrics)
 
-**Habilidades:**
-- PySpark 4.0 / AWS Glue 5.1 (pure Spark — sem GlueContext, DynamicFrame ou Job)
-- Leitura streaming com `spark.readStream` e `forEachBatch`
-- Checkpointing S3 com `cleanSource=archive` (sem job bookmarks)
+**Skills:**
+- PySpark 4.0 / AWS Glue 5.1 (pure Spark — no GlueContext, DynamicFrame or Job)
+- Streaming reading with `spark.readStream` and `forEachBatch`
+- S3 checkpointing with `cleanSource=archive` (no job bookmarks)
 - DataFrame API: schema validation, type casting
-- **Delta Lake**: `DeltaTable.forName()` via Glue Catalog, MERGE por PK, particionamento
-- Escrita particionada em Delta Lake com MERGE (cross-batch dedup)
-- Dataclasses Python com type hints (SourceConfig, TargetConfig)
-- Spark configs de otimização (AQE, shuffle, off-heap, dynamic allocation, Delta auto-optimize)
-- Configs passadas via `--conf` e aplicadas dinamicamente
+- **Delta Lake**: `DeltaTable.forName()` via Glue Catalog, MERGE by PK, partitioning
+- Partitioned write to Delta Lake with MERGE (cross-batch dedup)
+- Python dataclasses with type hints (SourceConfig, TargetConfig)
+- Spark optimization configs (AQE, shuffle, off-heap, dynamic allocation, Delta auto-optimize)
+- Configs passed via `--conf` and applied dynamically
 
-**Prompt pattern para invocar:**
+**Prompt pattern to invoke:**
 ```
-Use o agente glue-job-builder para implementar a classe {ClassName} 
-em app/src/dependencies/{file_name}.py com os seguintes requisitos:
-- {requisito 1}
-- {requisito 2}
+Use the glue-job-builder agent to implement the {ClassName} class 
+in app/src/dependencies/{file_name}.py with the following requirements:
+- {requirement 1}
+- {requirement 2}
 ...
 ```
 
-## Agente: `terraform-infra`
-**Propósito:** Criar e manter recursos de infraestrutura AWS via Terraform
+## Agent: `terraform-infra`
+**Purpose:** Create and maintain AWS infrastructure resources via Terraform
 
-**Habilidades:**
+**Skills:**
 - AWS Glue Job definitions (Glue 5.1)
-- Glue Security Configuration e KMS keys
-- Glue Connection tipo NETWORK (VPC)
-- Buckets S3 — upload de artefatos via `null_resource`
-- IAM roles e policies (role-datalake-analytics)
-- Scripts bash de setup e rollback (sem upload de artefatos nos scripts)
+- Glue Security Configuration and KMS keys
+- Glue Connection type NETWORK (VPC)
+- S3 Buckets — artifact upload via `null_resource`
+- IAM roles and policies (role-datalake-analytics)
+- Bash setup and rollback scripts (no artifact upload in scripts)
 
-## Agente: `data-quality-spec`
-**Propósito:** Definir e implementar regras de qualidade de dados para tbl_opensky_flights
+## Agent: `data-quality-spec`
+**Purpose:** Define and implement data quality rules for tbl_opensky_flights
 
-**Habilidades:**
-- Validação de schemas (tipos, nulabilidade, constraints)
-- Pipeline de 4 etapas: cast_types, check_nulls, check_enums, validate_timestamps
-- **Sem dedup explícito** — delegado ao Delta MERGE na escrita
-- Geração de métricas de qualidade via `QualityMetrics`
-- Estrutura de dados para rejected records (`_reject_table`, `_reject_rule`, `_reject_timestamp`)
+**Skills:**
+- Schema validation (types, nullability, constraints)
+- 4-stage pipeline: cast_types, check_nulls, check_enums, validate_timestamps
+- **No explicit dedup** — delegated to Delta MERGE on write
+- Quality metrics generation via `QualityMetrics`
+- Data structure for rejected records (`_reject_table`, `_reject_rule`, `_reject_timestamp`)
 
-## Agente: `config-designer`
-**Propósito:** Projetar e validar arquivos de configuração JSON (separados)
+## Agent: `config-designer`
+**Purpose:** Design and validate JSON configuration files (single file)
 
-**Habilidades:**
-- **origins.json**: configuração da origem DMS (source, source_location, format, cdc_config, checkpoint_location)
-- **target.json**: schema destino (catalog, location, partition_keys, schema completo, primary_key, enum_columns)
-- Separação clara entre config de conexão e config de destino
-- Localizações S3 (source, target, rejected, checkpoint)
+**Skills:**
+- **config.json**: unified configuration (list of tables, each with embedded source + target)
+- Clear separation between connection config and destination config
+- S3 locations (source, target, rejected, checkpoint)
 
-## Agente: `test-builder`
-**Propósito:** Implementar testes unitários e de integração
+## Agent: `test-builder`
+**Purpose:** Implement unit and integration tests
 
-**Habilidades:**
-- pytest com fixtures e mocks
-- Mock de SparkSession (sem GlueContext), boto3 (S3, Glue)
-- Cobertura de código (pytest-cov)
-- Testes de integração com boto3 real
-- Validação de dados escritos no S3 e Glue Catalog
-- Testes para EtlControl e QualityMetrics
+**Skills:**
+- pytest with fixtures and mocks
+- Mock SparkSession (no GlueContext), boto3 (S3, Glue)
+- Code coverage (pytest-cov)
+- Integration tests with real boto3
+- Validation of data written to S3 and Glue Catalog
+- Tests for EtlControl and QualityMetrics
 
-## Como usar
+## How to use
 
-### Para gerar código de uma classe específica:
+### To generate code for a specific class:
 ```
-@glue-job-builder Crie a classe Reader em app/src/dependencies/reader.py 
-que lê dados Parquet do S3 em streaming puro (sem Glue, sem batch, sem bookmarks).
-```
-
-### Para criar infraestrutura:
-```
-@terraform-infra Crie o resource aws_glue_job para o job streaming-minibatch-dms 
-com worker_type G.1X, glue_version 5.0, e script_location no bucket workspace.
+@glue-job-builder Create the Reader class in app/src/dependencies/reader.py 
+that reads Parquet data from S3 in pure streaming (no Glue, no batch, no bookmarks).
 ```
 
-### Para validar qualidade:
+### To create infrastructure:
 ```
-@data-quality-spec Defina as regras de qualidade para a tabela tbl_opensky_flights 
-com pipeline de 5 etapas.
-```
-
-### Para configurar origem:
-```
-@config-designer Crie origins.json para a origem DMS e target.json 
-para o schema destino tbl_opensky_flights.
+@terraform-infra Create the aws_glue_job resource for the streaming-minibatch-dms job 
+with worker_type G.1X, glue_version 5.0, and script_location in the workspace bucket.
 ```
 
-### Para criar testes:
+### To validate quality:
 ```
-@test-builder Crie testes unitários para a classe DataQuality 
-com mock do SparkSession, cobrindo validação de tipos, enums e rejects.
+@data-quality-spec Define the quality rules for the tbl_opensky_flights table 
+with a 5-stage pipeline.
+```
+
+### To configure source:
+```
+@config-designer Create config.json with the list of tables (each with source + target)
+for the tbl_opensky_flights destination schema.
+```
+
+### To create tests:
+```
+@test-builder Create unit tests for the DataQuality class 
+with SparkSession mock, covering type validation, enums and rejects.
 ```

@@ -47,14 +47,29 @@ output "script_location" {
   value       = local.script_location
 }
 
-output "origins_s3_path" {
-  description = "S3 path to the origins.json config"
-  value       = local.origins_s3_path
+output "config_s3_path" {
+  description = "S3 path to the unified config.json file"
+  value       = local.config_s3_path
 }
 
-output "target_s3_path" {
-  description = "S3 path to the target.json config"
-  value       = local.target_s3_path
+output "full_load_job_name" {
+  description = "Full-load batch Glue job name"
+  value       = aws_glue_job.full_load_batch.name
+}
+
+output "full_load_job_arn" {
+  description = "Full-load batch Glue job ARN"
+  value       = aws_glue_job.full_load_batch.arn
+}
+
+output "eventbridge_rule_name" {
+  description = "EventBridge rule name for DMS full load completion"
+  value       = aws_cloudwatch_event_rule.dms_full_load_complete.name
+}
+
+output "glue_trigger_name" {
+  description = "Glue trigger name for starting streaming after full load"
+  value       = aws_glue_trigger.start_streaming_after_full_load.name
 }
 
 output "vpc_id" {

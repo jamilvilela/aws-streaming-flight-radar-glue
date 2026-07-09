@@ -65,6 +65,8 @@ class Processor:
         self,
         source: SourceConfig,
         target: TargetConfig,
+        mode: str = "streaming",
+        dataframe: Optional[DataFrame] = None,
     ) -> None:
         """
         Execute the full processing pipeline for a given source/target.
@@ -72,33 +74,49 @@ class Processor:
         Args:
             source: SourceConfig describing the DMS origin.
             target: TargetConfig describing the destination table.
+            mode: ``\"streaming\"`` (default) or ``\"batch\"``.
+            dataframe: Optional pre-read DataFrame. When provided in batch
+                mode, the Reader step is skipped and this DataFrame is used
+                directly.
         """
         self._execution_id = str(uuid.uuid4())
         self._source = source
         self._target = target
 
+        is_batch = mode == "batch"
+
         logger.info(
-            "Starting pipeline | execution_id=%s | source=%s | target=%s.%s",
+            "Starting pipeline | execution_id=%s | source=%s | target=%s.%s | mode=%s",
             self._execution_id,
             source.source,
             target.database,
             target.table,
+            mode,
         )
 
         start_time = time.time()
         pipeline_status = "running"
+        exc: Optional[Exception] = None
 
         try:
-            # 1. Read
-            raw_df = self._reader.read(source)
-            self._records_read = raw_df.count() if not self._is_streaming(raw_df) else 0
-            logger.info("Read %d records from %s", self._records_read, source.source)
+            # 1. Read (skip if a pre-read dataframe was provided in batch mode)
+            if dataframe is not None and is_batch:
+                raw_df = dataframe
+                self._records_read = raw_df.count()
+            else:
+                raw_df = self._reader.read(source, mode=mode)
+                self._records_read = 0 if self._is_streaming(raw_df) else raw_df.count()
+            logger.info("Read %d records from %s (%s)", self._records_read, source.source, mode)
 
             # 2. Validate
             valid_df, rejects_df = self._data_quality.validate(raw_df, target, source)
-            self._records_rejected = rejects_df.count() if not rejects_df.isEmpty() else 0
-            self._records_written = (valid_df.count() if not self._is_streaming(valid_df)
-                                     else max(0, self._records_read - self._records_rejected))
+            self._records_rejected = 0
+            if not rejects_df.isEmpty():
+                self._records_rejected = rejects_df.count()
+            if is_batch and not valid_df.isEmpty():
+                self._records_written = valid_df.count()
+            else:
+                self._records_written = max(0, self._records_read - self._records_rejected)
             logger.info(
                 "Validation complete: %d valid, %d rejected",
                 self._records_written,
@@ -112,9 +130,10 @@ class Processor:
             self._writer.write(valid_df, target, source)
 
             pipeline_status = "success"
-            logger.info("Pipeline completed successfully for %s", source.source)
+            logger.info("Pipeline completed successfully for %s (%s)", source.source, mode)
 
-        except Exception as exc:
+        except Exception as pipeline_exc:
+            exc = pipeline_exc
             pipeline_status = "failed"
             logger.error("Pipeline failed for %s: %s", source.source, exc, exc_info=True)
             raise ProcessorError(f"Pipeline failed for '{source.source}': {exc}") from exc

@@ -1,35 +1,35 @@
-**Resumo:** **Documento técnico pronto para engenheiros de dados** com detalhamento da arquitetura AWS (medallion), fluxos batch/CDC/streaming, exemplos de DDL, job Glue, política IAM mínima e snippet Terraform; **data:** 28-06-2026; **versão:** v2.0.
+**Summary:** **Technical document ready for data engineers** detailing AWS architecture (medallion), batch/CDC/streaming flows, DDL examples, Glue job, minimal IAM policy and Terraform snippet; **date:** 28-06-2026; **version:** v2.0.
 
-# Arquitetura de Dados AWS — Detalhamento Técnico para Engenheiros de Dados  
-**Autor:** Jamil  
-**Data:** 28-06-2026  
-**Versão:** v2.0
+# AWS Data Architecture — Technical Detail for Data Engineers  
+**Author:** Jamil  
+**Date:** 28-06-2026  
+**Version:** v2.0
 
-## 1 Visão Executiva
-**Objetivo:** plataforma Data Lakehouse em AWS que suporta ingestão híbrida (batch, CDC, streaming), curadoria por camadas (Landing → Bronze → Silver → Gold → Workspace) e consumo por BI/ML. **Público:** engenheiros de dados responsáveis por implementação e operação.
+## 1 Executive Overview
+**Objective:** AWS Data Lakehouse platform that supports hybrid ingestion (batch, CDC, streaming), layered curation (Landing → Bronze → Silver → Gold → Workspace) and consumption by BI/ML. **Audience:** data engineers responsible for implementation and operation.
 
-## 2 Componentes e Responsabilidades
-- **Fontes:** RDBMS (CDC), arquivos legados, APIs SaaS, apps/sites.  
-- **Conectores:** DMS (CDC), Transfer Family (SFTP), AppFlow, API Gateway + Lambda, EventBridge.  
-- **Ingestão:** Kinesis / Firehose, MSK (Kafka), Flink (KDA).  
+## 2 Components and Responsibilities
+- **Sources:** RDBMS (CDC), legacy files, SaaS APIs, apps/sites.  
+- **Connectors:** DMS (CDC), Transfer Family (SFTP), AppFlow, API Gateway + Lambda, EventBridge.  
+- **Ingestion:** Kinesis / Firehose, MSK (Kafka), Flink (KDA).  
 - **Lakehouse (S3):** **Landing**, **Bronze**, **Silver**, **Gold**, **Workspace**.  
-- **Processamento:** Glue (batch/streaming), EMR (Spark para >10TB), Databricks (notebooks/Delta).  
-- **Governança:** DataZone, Glue Data Catalog, Lake Formation.  
-- **Consumo:** Redshift, Athena, SageMaker, APIs.  
-- **Segurança/Observabilidade:** IAM, KMS, Secrets Manager, CloudWatch, DataDog, Terraform (IaC).
+- **Processing:** Glue (batch/streaming), EMR (Spark for >10TB), Databricks (notebooks/Delta).  
+- **Governance:** DataZone, Glue Data Catalog, Lake Formation.  
+- **Consumption:** Redshift, Athena, SageMaker, APIs.  
+- **Security/Observability:** IAM, KMS, Secrets Manager, CloudWatch, DataDog, Terraform (IaC).
 
-## 3 Fluxos e Padrões
+## 3 Flows and Patterns
 - **Batch:** Transfer → S3 Landing → Glue Batch/EMR → Bronze → Silver → Gold.  
 - **CDC:** RDBMS → DMS → MSK/Kinesis → stream processors → Bronze→Silver.  
 - **Streaming:** App/API → API Gateway/Lambda → Kinesis → Flink/Glue Streaming → Bronze.  
-**Padrões:** medallion pattern; event-driven; CDC com idempotência; schema evolution via Glue Catalog.
+**Patterns:** medallion pattern; event-driven; CDC with idempotency; schema evolution via Glue Catalog.
 
-## 4 Modelagem e Boas Práticas
-- **Particionamento:** `ingestion_date` e `event_date`.  
-- **Formato:** **Parquet** + **Snappy** (batch) / **Delta Lake** (streaming CDC).  
-- **Práticas:** partition pruning, compaction periódica, small-file mitigation, Delta MERGE para dedup cross-batch.
+## 4 Modeling and Best Practices
+- **Partitioning:** `ingestion_date` and `event_date`.  
+- **Format:** **Parquet** + **Snappy** (batch) / **Delta Lake** (streaming CDC).  
+- **Practices:** partition pruning, periodic compaction, small-file mitigation, Delta MERGE for cross-batch dedup.
 
-**Exemplo DDL (Gold)**
+**DDL Example (Gold)**
 ```sql
 CREATE TABLE gold.events (
   event_id STRING,
@@ -44,7 +44,7 @@ PARTITIONED BY (ingestion_date DATE)
 STORED AS PARQUET;
 ```
 
-## 5 Exemplos de Job Glue (PySpark)
+## 5 Glue Job Examples (PySpark)
 ```python
 from pyspark.sql import SparkSession
 
@@ -69,30 +69,30 @@ df.writeStream \
     .start() \
     .awaitTermination()
 ```
-**Idempotência:** usar Delta MERGE com base na PK composta para garantir unicidade cross-batch (sem necessidade de `dropDuplicates`).
+**Idempotency:** use Delta MERGE based on composite PK to ensure cross-batch uniqueness (no need for `dropDuplicates`).
 
-## 6 Orquestração e Observabilidade
-- **Orquestração:** Airflow (DAGs), EventBridge, Step Functions.  
-- **Métricas essenciais:** throughput, consumer lag, job duration, data quality score.  
-- **Alertas:** lag > threshold, job failures, regressão de qualidade; integrar PagerDuty/Slack.
+## 6 Orchestration and Observability
+- **Orchestration:** Airflow (DAGs), EventBridge, Step Functions.  
+- **Essential metrics:** throughput, consumer lag, job duration, data quality score.  
+- **Alerts:** lag > threshold, job failures, quality regression; integrate PagerDuty/Slack.
 
-## 7 Segurança e Governança
-- **IAM least-privilege**, **SSE‑KMS**, Secrets Manager, Lake Formation para controle coluna/linha.  
-- **Masking PII** na camada Silver; políticas de retenção e auditoria via CloudTrail.
+## 7 Security and Governance
+- **IAM least-privilege**, **SSE‑KMS**, Secrets Manager, Lake Formation for column/row control.  
+- **PII Masking** in Silver layer; retention and audit policies via CloudTrail.
 
-## 8 SLAs, Custos e Otimizações
-- **SLA streaming:** <30s end‑to‑end; **batch diário:** 2–4h.  
-- **Otimizações:** lifecycle (Landing 30d → Glacier), spot instances EMR, partition pruning, compaction.
+## 8 SLAs, Costs and Optimizations
+- **Streaming SLA:** <30s end‑to‑end; **daily batch:** 2–4h.  
+- **Optimizations:** lifecycle (Landing 30d → Glacier), spot instances EMR, partition pruning, compaction.
 
-## 9 Riscos e Recomendações
-- Mitigar single-point-of-failure em tópicos; implementar DLQs, retries exponenciais, canary jobs; IaC obrigatório.
+## 9 Risks and Recommendations
+- Mitigate single-point-of-failure in topics; implement DLQs, exponential retries, canary jobs; IaC mandatory.
 
-## 10 Roadmap (fases)
-1. Fundamentos (S3, KMS, Catalog). 2. Batch ingestion. 3. Streaming + CDC. 4. Curadoria Silver/Gold. 5. Consumo e ML. 6. Observabilidade e custo.
+## 10 Roadmap (phases)
+1. Foundations (S3, KMS, Catalog). 2. Batch ingestion. 3. Streaming + CDC. 4. Silver/Gold curation. 5. Consumption and ML. 6. Observability and cost.
 
-## Anexos
+## Appendices
 
-**IAM policy mínima (Glue job)**
+**Minimal IAM policy (Glue job)**
 ```json
 {
   "Version":"2012-10-17",

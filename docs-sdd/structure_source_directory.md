@@ -1,4 +1,4 @@
-Aqui está a estrutura completa do bucket `lakehouse-landing-331504768406` em formato de árvore:
+Here is the complete structure of the `lakehouse-landing-331504768406` bucket in tree format:
 
 ```
 lakehouse-landing-331504768406/
@@ -137,16 +137,16 @@ lakehouse-landing-331504768406/
 
 ---
 
-### Resumo
+### Summary
 
-| Caminho | Total de Objetos |
+| Path | Total Objects |
 |---|---|
-| **Total geral** | **105 objetos — 20.9 MiB** |
-| `dms/flightradar/flight_radar/` (DMS Streaming — Parquet) | 5 tabelas: `aircraft`, `aircraft_positions`, `airlines`, `airports`, `flights` |
-| `opensky/flights-enriched-raw/` (particionado por `dt=`) | 3 partições (07, 11, 21 de Junho) |
-| `opensky/flights/` (particionado `year/month/day/hour` — JSON) | Registros de Abr a Mai/2026 |
+| **Grand total** | **105 objects — 20.9 MiB** |
+| `dms/flightradar/flight_radar/` (DMS Streaming — Parquet) | 5 tables: `aircraft`, `aircraft_positions`, `airlines`, `airports`, `flights` |
+| `opensky/flights-enriched-raw/` (partitioned by `dt=`) | 3 partitions (June 07, 11, 21) |
+| `opensky/flights/` (partitioned `year/month/day/hour` — JSON) | Records from Apr to May/2026 |
 
-**Observações:**
-- A pasta `dms/flightradar/flight_radar/` contém dados do **DMS CDC Streaming** no formato **Parquet**, com arquivos de carga inicial (`LOAD...`) e incrementais particionados por data (`2026/06/21` e `22`).
-- A pasta `opensky/flights-enriched-raw/` contém saída de **ETL Glue** (provavelmente) com dados enriquecidos no formato de texto particionado.
-- A pasta `opensky/flights/` contém dados brutos do **OpenSky Network** ingeridos via **Firehose** no formato **JSON**, particionados hierarquicamente por `year=.../month=.../day=.../hour=...`.
+**Notes:**
+- The `dms/flightradar/flight_radar/` folder contains **DMS CDC Streaming** data in **Parquet** format, with initial load files (`LOAD...`) and incremental files partitioned by date (`2026/06/21` and `22`).
+- The `opensky/flights-enriched-raw/` folder contains **Glue ETL** output (likely) with enriched data in partitioned text format.
+- The `opensky/flights/` folder contains raw **OpenSky Network** data ingested via **Firehose** in **JSON** format, hierarchically partitioned by `year=.../month=.../day=.../hour=...`.

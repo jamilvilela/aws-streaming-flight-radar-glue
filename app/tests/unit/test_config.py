@@ -132,8 +132,10 @@ class TestTargetConfig:
 
 
 class TestConfig:
-    SOURCE_DICT = {
+    # Single source dict with embedded target (new config.json format)
+    SOURCE_WITH_TARGET = {
         "source": "flights",
+        "order": 1,
         "source_location": "s3://landing/dms/flightradar/flight_radar/",
         "format": "parquet",
         "cdc_config": {
@@ -141,58 +143,50 @@ class TestConfig:
             "timestamp_column": "dms_timestamp",
         },
         "checkpoint_location": "s3://workspace/checkpoints/flights/",
-    }
-
-    TARGET_DICT = {
-        "catalog": {"database": "db_raw", "table": "tbl_opensky_flights"},
-        "location": "s3://raw/tables/opensky/flights/",
-        "rejected_location": "s3://landing/dms/flightradar/flight_radar/Rejected/",
-        "format": "parquet",
-        "compression": "snappy",
-        "partition_keys": [{"name": "event_date", "type": "date"}],
-        "schema": {
-            "icao24": {"type": "string", "nullable": True, "comment": "ICAO24"},
-            "latitude": {"type": "double", "nullable": True, "comment": "Latitude"},
+        "target": {
+            "catalog": {"database": "db_raw", "table": "tbl_opensky_flights"},
+            "location": "s3://raw/tables/opensky/flights/",
+            "rejected_location": "s3://landing/dms/flightradar/flight_radar/Rejected/",
+            "format": "parquet",
+            "compression": "snappy",
+            "partition_keys": [{"name": "event_date", "type": "date"}],
+            "schema": {
+                "icao24": {"type": "string", "nullable": True, "comment": "ICAO24"},
+                "latitude": {"type": "double", "nullable": True, "comment": "Latitude"},
+            },
+            "primary_key": ["icao24", "event_time"],
+            "cod_unico_expr": {"columns": ["icao24", "event_time"], "separator": "_"},
+            "enum_columns": {},
         },
-        "primary_key": ["icao24", "event_time"],
-        "cod_unico_expr": {"columns": ["icao24", "event_time"], "separator": "_"},
-        "enum_columns": {},
     }
 
     def test_from_dicts(self):
-        config = Config.from_dicts(self.SOURCE_DICT, self.TARGET_DICT)
+        config = Config.from_dicts(self.SOURCE_WITH_TARGET)
         assert config.source.source == "flights"
         assert config.target.database == "db_raw"
         assert config.target.table == "tbl_opensky_flights"
-        assert config.source_name == "flights"
 
     def test_from_dicts_list_source(self):
-        """Source as a list (origins.json format) should be parsed correctly."""
-        config = Config.from_dicts([self.SOURCE_DICT], self.TARGET_DICT)
+        """Source as a list should be parsed correctly."""
+        config = Config.from_dicts([self.SOURCE_WITH_TARGET])
         assert config.source.source == "flights"
 
     def test_from_dicts_dict_with_sources_key(self):
         """Legacy format with 'sources' key should still work."""
-        legacy = {"sources": {"flights": self.SOURCE_DICT}}
-        config = Config.from_dicts(legacy, self.TARGET_DICT)
+        legacy = {"sources": [self.SOURCE_WITH_TARGET]}
+        config = Config.from_dicts(legacy)
         assert config.source.source == "flights"
 
     def test_from_files(self):
-        with (
-            tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as sf,
-            tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as tf,
-        ):
-            json.dump(self.SOURCE_DICT, sf)
-            json.dump(self.TARGET_DICT, tf)
-            src_path = sf.name
-            tgt_path = tf.name
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
+            json.dump([self.SOURCE_WITH_TARGET], f)
+            path = f.name
         try:
-            config = Config.from_files(src_path, tgt_path)
+            config = Config.from_file(path)
             assert config.source.source == "flights"
             assert config.target.table == "tbl_opensky_flights"
         finally:
-            Path(src_path).unlink()
-            Path(tgt_path).unlink()
+            Path(path).unlink()
 
     def test_from_invalid_json(self):
         with pytest.raises(Exception):
@@ -200,23 +194,23 @@ class TestConfig:
                 f.write("{invalid}")
                 path = f.name
             try:
-                Config.from_files(path, path)
+                Config.from_file(path)
             finally:
                 Path(path).unlink()
 
     def test_parse_source_from_list(self):
-        result = Config._parse_source([self.SOURCE_DICT])
-        assert isinstance(result, SourceConfig)
-        assert result.source == "flights"
+        result = Config._parse_sources([self.SOURCE_WITH_TARGET])
+        assert isinstance(result, list)
+        assert result[0].source == "flights"
 
     def test_parse_source_from_empty_list(self):
-        result = Config._parse_source([])
-        assert isinstance(result, SourceConfig)
-        assert result.source == ""
+        result = Config._parse_sources([])
+        assert isinstance(result, list)
+        assert len(result) == 0
 
     def test_parse_source_from_dict_with_sources(self):
-        result = Config._parse_source({"sources": {"flights": self.SOURCE_DICT}})
-        assert result.source == "flights"
+        result = Config._parse_sources({"sources": [self.SOURCE_WITH_TARGET]})
+        assert result[0].source == "flights"
 
 
 class TestParseS3Path:

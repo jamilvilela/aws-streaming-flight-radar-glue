@@ -39,42 +39,68 @@ class Reader:
 
     # ── Public API ───────────────────────────────────────────────────
 
-    def read(self, source: SourceConfig) -> DataFrame:
+    def read(self, source: SourceConfig, mode: str = "streaming") -> DataFrame:
         """
-        Read data from the configured source in streaming mode.
+        Read data from the configured source.
 
-        The checkpoint_location in the source config is used for
-        fault-tolerant recovery.
+        In ``streaming`` mode (default) uses Spark ``readStream`` with
+        checkpoint-based fault-tolerance, reading from
+        ``source.cdc_source_location`` (the CDC-only prefix).
+
+        In ``batch`` mode reads all existing files at once from
+        ``source.source_location`` (the full-load path).
 
         Args:
             source: SourceConfig describing the DMS origin to read from.
+            mode: ``"streaming"`` (default) or ``"batch"``.
 
         Returns:
-            Streaming DataFrame with the raw source data.
+            Streaming or static DataFrame with the raw source data.
         """
-        logger.info("Reading streaming from %s", source.source_location)
+        location = source.cdc_source_location if mode == "streaming" else source.source_location
+        logger.info("Reading %s from %s", mode, location)
+        if mode == "batch":
+            return self._read_batch(source)
         return self._read_streaming(source)
 
     # ── Internal methods ─────────────────────────────────────────────
+
+    def _read_batch(self, source: SourceConfig) -> DataFrame:
+        """Read all existing data from source location as a static DataFrame."""
+        try:
+            df = (
+                self._spark.read
+                .format(source.format)
+                .load(source.source_location)
+            )
+            logger.info("Batch read %d rows from %s", df.count(), source.source_location)
+            return df
+        except Exception as exc:
+            raise ReaderError(
+                f"Failed to create batch read: {exc}"
+            ) from exc
 
     def _read_streaming(self, source: SourceConfig) -> DataFrame:
         """
         Read data in streaming mode using Spark readStream.
 
-        Relies on Parquet's self-describing schema — no explicit schema needed.
-        Checkpoint location in the source config enables fault-tolerance.
+        Uses ``cdc_source_location`` — the CDC-only prefix written by
+        DMS via the ``CdcPath`` parameter. ``includeExistingFiles=false``
+        ensures already-processed full-load files are not re-read.
         """
+        cdc_path = source.cdc_source_location or source.source_location
+        archive_path = cdc_path.rstrip("/") + "_archive/"
         try:
             stream_df = (
                 self._spark.readStream
                 .format("parquet")
                 .option("maxFilesPerTrigger", 1)
                 .option("cleanSource", "archive")
-                .option("sourceArchiveDir", source.source_location + "_archive/")
-                .option("includeExistingFiles", "true")
-                .load(source.source_location)
+                .option("sourceArchiveDir", archive_path)
+                .option("includeExistingFiles", "false")
+                .load(cdc_path)
             )
-            logger.debug("Streaming reader created for %s", source.source_location)
+            logger.debug("Streaming reader created for %s", cdc_path)
             return stream_df
         except Exception as exc:
             raise ReaderError(

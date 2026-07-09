@@ -43,9 +43,7 @@ glue_script_location = ""
 
 glue_extra_py_files = ""
 
-glue_origins_s3_path = ""
-
-glue_target_s3_path  = ""
+glue_config_s3_path = ""
 
 glue_connections = []
 

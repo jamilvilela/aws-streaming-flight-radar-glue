@@ -1,0 +1,168 @@
+[
+  {
+    "source": "aircraft",
+    "order": 1,
+    "source_location": "s3://lakehouse-landing-{account_id}/dms/flightradar/flight_radar/aircraft/",
+    "cdc_source_location": "s3://lakehouse-landing-{account_id}/dms/flightradar/flight_radar/aircraft_cdc/",
+    "format": "parquet",
+    "cdc_config": {
+      "op_column": "Op",
+      "timestamp_column": "dms_timestamp",
+      "delete_strategy": "soft_delete"
+    },
+    "checkpoint_location": "s3://lakehouse-workspace-{account_id}/checkpoints/aircraft/",
+    "target": {
+      "catalog": { "database": "db_raw", "table": "tbl_aircraft" },
+      "location": "s3://lakehouse-raw-{account_id}/tables/tbl_aircraft/",
+      "rejected_location": "s3://lakehouse-landing-{account_id}/tables/tbl_aircraft/Rejected/",
+      "format": "delta",
+      "compression": "snappy",
+      "partition_keys": [{ "name": "event_date", "type": "date" }],
+      "schema": {
+        "icao24":       { "type": "string", "nullable": true },
+        "registration": { "type": "string", "nullable": true },
+        "model":        { "type": "string", "nullable": true },
+        "manufacturer": { "type": "string", "nullable": true },
+        "cod_unico":    { "type": "string", "nullable": true, "comment": "Concatenação da PK (icao24)" }
+      },
+      "primary_key": ["icao24"],
+      "cod_unico_expr": { "columns": ["icao24"], "separator": "_" },
+      "enum_columns": {}
+    }
+  },
+  {
+    "source": "airports",
+    "order": 2,
+    "source_location": "s3://lakehouse-landing-{account_id}/dms/flightradar/flight_radar/airports/",
+    "cdc_source_location": "s3://lakehouse-landing-{account_id}/dms/flightradar/flight_radar/airports_cdc/",
+    "format": "parquet",
+    "cdc_config": {
+      "op_column": "Op",
+      "timestamp_column": "dms_timestamp",
+      "delete_strategy": "soft_delete"
+    },
+    "checkpoint_location": "s3://lakehouse-workspace-{account_id}/checkpoints/airports/",
+    "target": {
+      "catalog": { "database": "db_raw", "table": "tbl_airports" },
+      "location": "s3://lakehouse-raw-{account_id}/tables/tbl_airports/",
+      "rejected_location": "s3://lakehouse-landing-{account_id}/tables/tbl_airports/Rejected/",
+      "format": "delta",
+      "compression": "snappy",
+      "partition_keys": [{ "name": "event_date", "type": "date" }],
+      "schema": {
+        "airport_code": { "type": "string", "nullable": true },
+        "airport_name": { "type": "string", "nullable": true },
+        "city":         { "type": "string", "nullable": true },
+        "country":      { "type": "string", "nullable": true },
+        "latitude":     { "type": "double", "nullable": true },
+        "longitude":    { "type": "double", "nullable": true },
+        "cod_unico":    { "type": "string", "nullable": true, "comment": "Concatenação da PK (airport_code)" }
+      },
+      "primary_key": ["airport_code"],
+      "cod_unico_expr": { "columns": ["airport_code"], "separator": "_" },
+      "enum_columns": {}
+    }
+  },
+  {
+    "source": "airlines",
+    "order": 3,
+    "source_location": "s3://lakehouse-landing-{account_id}/dms/flightradar/flight_radar/airlines/",
+    "cdc_source_location": "s3://lakehouse-landing-{account_id}/dms/flightradar/flight_radar/airlines_cdc/",
+    "format": "parquet",
+    "cdc_config": {
+      "op_column": "Op",
+      "timestamp_column": "dms_timestamp",
+      "delete_strategy": "soft_delete"
+    },
+    "checkpoint_location": "s3://lakehouse-workspace-{account_id}/checkpoints/airlines/",
+    "target": {
+      "catalog": { "database": "db_raw", "table": "tbl_airlines" },
+      "location": "s3://lakehouse-raw-{account_id}/tables/tbl_airlines/",
+      "rejected_location": "s3://lakehouse-landing-{account_id}/tables/tbl_airlines/Rejected/",
+      "format": "delta",
+      "compression": "snappy",
+      "partition_keys": [{ "name": "event_date", "type": "date" }],
+      "schema": {
+        "airline_code": { "type": "string", "nullable": true },
+        "airline_name": { "type": "string", "nullable": true },
+        "country":      { "type": "string", "nullable": true },
+        "cod_unico":    { "type": "string", "nullable": true, "comment": "Concatenação da PK (airline_code)" }
+      },
+      "primary_key": ["airline_code"],
+      "cod_unico_expr": { "columns": ["airline_code"], "separator": "_" },
+      "enum_columns": {}
+    }
+  },
+  {
+    "source": "flights",
+    "order": 4,
+    "source_location": "s3://lakehouse-landing-{account_id}/dms/flightradar/flight_radar/flights/",
+    "cdc_source_location": "s3://lakehouse-landing-{account_id}/dms/flightradar/flight_radar/flights_cdc/",
+    "format": "parquet",
+    "cdc_config": {
+      "op_column": "Op",
+      "timestamp_column": "dms_timestamp",
+      "delete_strategy": "soft_delete"
+    },
+    "checkpoint_location": "s3://lakehouse-workspace-{account_id}/checkpoints/flights/",
+    "target": {
+      "catalog": { "database": "db_raw", "table": "tbl_opensky_flights" },
+      "location": "s3://lakehouse-raw-{account_id}/tables/tbl_opensky_flights/",
+      "rejected_location": "s3://lakehouse-landing-{account_id}/tables/tbl_opensky_flights/Rejected/",
+      "format": "delta",
+      "compression": "snappy",
+      "partition_keys": [{ "name": "event_date", "type": "date" }],
+      "schema": {
+        "icao24":         { "type": "string", "nullable": true },
+        "callsign":       { "type": "string", "nullable": true },
+        "origin_country": { "type": "string", "nullable": true },
+        "latitude":       { "type": "double", "nullable": true },
+        "longitude":      { "type": "double", "nullable": true },
+        "altitude":       { "type": "double", "nullable": true },
+        "velocity":       { "type": "double", "nullable": true },
+        "heading":        { "type": "double", "nullable": true },
+        "last_contact":   { "type": "bigint", "nullable": true },
+        "event_time":     { "type": "string", "nullable": true },
+        "location":       { "type": "string", "nullable": true },
+        "cod_unico":      { "type": "string", "nullable": true, "comment": "Concatenação da PK (icao24_event_time)" }
+      },
+      "primary_key": ["icao24", "event_time"],
+      "cod_unico_expr": { "columns": ["icao24", "event_time"], "separator": "_" },
+      "enum_columns": {}
+    }
+  },
+  {
+    "source": "aircraft_positions",
+    "order": 5,
+    "source_location": "s3://lakehouse-landing-{account_id}/dms/flightradar/flight_radar/aircraft_positions/",
+    "cdc_source_location": "s3://lakehouse-landing-{account_id}/dms/flightradar/flight_radar/aircraft_positions_cdc/",
+    "format": "parquet",
+    "cdc_config": {
+      "op_column": "Op",
+      "timestamp_column": "dms_timestamp",
+      "delete_strategy": "soft_delete"
+    },
+    "checkpoint_location": "s3://lakehouse-workspace-{account_id}/checkpoints/aircraft_positions/",
+    "target": {
+      "catalog": { "database": "db_raw", "table": "tbl_aircraft_positions" },
+      "location": "s3://lakehouse-raw-{account_id}/tables/tbl_aircraft_positions/",
+      "rejected_location": "s3://lakehouse-landing-{account_id}/tables/tbl_aircraft_positions/Rejected/",
+      "format": "delta",
+      "compression": "snappy",
+      "partition_keys": [{ "name": "event_date", "type": "date" }],
+      "schema": {
+        "icao24":          { "type": "string", "nullable": true },
+        "latitude":        { "type": "double", "nullable": true },
+        "longitude":       { "type": "double", "nullable": true },
+        "altitude":        { "type": "double", "nullable": true },
+        "velocity":        { "type": "double", "nullable": true },
+        "heading":         { "type": "double", "nullable": true },
+        "timestamp":       { "type": "bigint", "nullable": true },
+        "cod_unico":       { "type": "string", "nullable": true, "comment": "Concatenação da PK (icao24_timestamp)" }
+      },
+      "primary_key": ["icao24", "timestamp"],
+      "cod_unico_expr": { "columns": ["icao24", "timestamp"], "separator": "_" },
+      "enum_columns": {}
+    }
+  }
+]

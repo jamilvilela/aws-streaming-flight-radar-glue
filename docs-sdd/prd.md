@@ -1,6 +1,6 @@
 ---
 id: prd-glue-streaming-dms-cdc
-title: PRD — Glue Job Streaming Mini-Batch para DMS CDC (tbl_opensky_flights)
+title: PRD — Glue Job Streaming Mini-Batch for DMS CDC (tbl_opensky_flights)
 status: draft
 version: 3.0
 created: 2026-06-29
@@ -10,135 +10,134 @@ author: Data Engineering Team
 
 # Product Requirements Document (PRD)
 
-## 1. Objetivo
-Construir um pipeline de processamento de dados **CDC (Change Data Capture)** da tabela **`tbl_opensky_flights`** no Data Lake, utilizando **AWS Glue 5.1 (PySpark 4.0)** com processamento **streaming mini-batch** (pure Spark — sem APIs Glue), garantindo qualidade, rastreabilidade e baixa latência.
+## 1. Objective
+Build a **CDC (Change Data Capture)** data processing pipeline for the **`tbl_opensky_flights`** table in the Data Lake, using **AWS Glue 5.1 (PySpark 4.0)** with **streaming mini-batch** processing (pure Spark — no Glue APIs), ensuring quality, traceability and low latency.
 
-## 2. Problema
-Os dados replicados pelo DMS no bucket landing precisam ser processados antes de estarem prontos para consumo analítico. Atualmente:
-- Dados brutos no bucket landing sem validação de schema
-- Sem rastreamento de qualidade dos dados ingeridos
-- Sem processo de rejeição de registros inválidos
-- Sem checkpointing para retomada de processamento
-- Necessidade de schema enriquecido para tabela de controle `etl_control`
+## 2. Problem
+Data replicated by DMS in the landing bucket needs to be processed before it's ready for analytical consumption. Currently:
+- Raw data in the landing bucket without schema validation
+- No quality tracking for ingested data
+- No rejection process for invalid records
+- No checkpointing for processing recovery
+- Need for enriched schema for the `etl_control` control table
 
-## 3. Requisitos Funcionais
+## 3. Functional Requirements
 
-### RF01 — Leitura Streaming (sem Glue APIs)
-- Job deve ler arquivos Parquet do DMS no bucket landing
-- Leitura **streaming-only** com `spark.readStream` (sem suporte batch)
-- `maxFilesPerTrigger=1` para controle de micro-batches
-- Checkpoint S3 via `cleanSource=archive` (sem job bookmarks do Glue)
-- `includeExistingFiles=true` para processar dados históricos
+### FR01 — Streaming Read (no Glue APIs)
+- Job must read Parquet files from DMS in the landing bucket
+- **Streaming-only** read with `spark.readStream` (no batch support)
+- `maxFilesPerTrigger=1` for micro-batch control
+- S3 checkpoint via `cleanSource=archive` (no Glue job bookmarks)
+- `includeExistingFiles=true` to process historical data
 
-### RF02 — Configuração Dinâmica via JSON (separada)
-- Dois arquivos JSON no S3:
-  - **origins.json**: configuração da origem DMS (conexão, source_location, checkpoint)
-  - **target.json**: schema destino com colunas, tipos, partições, PK, enums
-- Job lê ambos os arquivos em runtime usando **dataclasses** Python
-- Schema deve incluir tipos (string, double, bigint, etc.), partition_keys, primary_key, enum_columns
+### FR02 — Dynamic JSON Configuration (single file)
+- Single JSON file on S3:
+  - **config.json**: unified configuration (list of tables, each with embedded source + target)
+- Job reads the file at runtime using Python **dataclasses**
+- Schema must include types (string, double, bigint, etc.), partition_keys, primary_key, enum_columns
 
-### RF03 — Qualidade de Dados (4 etapas)
-- Pipeline de validação com 4 etapas:
-  1. **Cast de tipos** — converte colunas conforme schema do target
-  2. **Null check** — filtra nulos em campos NOT NULL
-  3. **Enum validation** — valida valores de `enum_columns`
-  4. **Timestamp validation** — valida timestamps
-- **Sem dedup explícito** — unicidade garantida pelo Delta MERGE na escrita
-- Registrar métricas de qualidade em `data_quality_metrics` via classe `QualityMetrics`
+### FR03 — Data Quality (4 stages)
+- Validation pipeline with 4 stages:
+  1. **Cast types** — converts columns according to target schema
+  2. **Null check** — filters nulls in NOT NULL fields
+  3. **Enum validation** — validates `enum_columns` values
+  4. **Timestamp validation** — validates timestamps
+- **No explicit dedup** — uniqueness guaranteed by Delta MERGE on write
+- Record quality metrics in `data_quality_metrics` via `QualityMetrics` class
 
-### RF04 — Rejeição de Registros
-- Registros que não passarem nas validações devem ser salvos em `Rejected/`
-- Cada registro rejeitado deve incluir metadados: `_reject_table`, `_reject_rule`, `_reject_timestamp`
+### FR04 — Record Rejection
+- Records that fail validation must be saved to `Rejected/`
+- Each rejected record must include metadata: `_reject_table`, `_reject_rule`, `_reject_timestamp`
 
-### RF05 — Escrita no Data Lake (Delta Lake)
-- Formato: **Delta Lake** para dados válidos (rejects em Parquet)
-- Particionamento por `event_date` (derivado de coluna timestamp)
-- Escrita via **Delta MERGE** (`WHEN NOT MATCHED THEN INSERT` / `WHEN MATCHED THEN UPDATE`) com base na PK
-- Geração de `cod_unico` (concatenação da PK) como chave do merge
-- **Sem necessidade de compaction** — Delta Lake gerencia otimização via auto-optimize
-- Suporte a escrita de rejects via `Writer.write_rejects()` (formato Parquet)
+### FR05 — Data Lake Write (Delta Lake)
+- Format: **Delta Lake** for valid data (rejects in Parquet)
+- Partitioning by `event_date` (derived from timestamp column)
+- Write via **Delta MERGE** (`WHEN NOT MATCHED THEN INSERT` / `WHEN MATCHED THEN UPDATE`) based on PK
+- Generate `cod_unico` (PK concatenation) as merge key
+- **No compaction needed** — Delta Lake manages optimization via auto-optimize
+- Support writing rejects via `Writer.write_rejects()` (Parquet format)
 
-### RF06 — Rastreabilidade (EtlControl)
-- Classe `EtlControl` separada para escrever metadados em `etl_control`
+### FR06 — Traceability (EtlControl)
+- Separate `EtlControl` class to write metadata to `etl_control`
 - Schema: execution_id, source_name, status, records_read, records_written, records_rejected, elapsed_seconds, error_message
-- Resolve caminhos S3 e account_id dinamicamente via `boto3`
+- Resolves S3 paths and account_id dynamically via `boto3`
 
-### RF07 — Orquestração com Componentes Separados
-- `Processor` como classe central que coordena:
-  1. `Config.from_files()` / `Config.from_s3()` — carregar configurações
+### FR07 — Orchestration with Separate Components
+- `Processor` as the central coordinating class:
+  1. `Config.from_file()` / `Config.from_s3()` — load configurations
   2. `Reader.read(source)` — streaming read
-  3. `DataQuality.validate(df, target, source)` — validação
-  4. `Writer.write(valid_df, target, source)` — escrita dados válidos
-  5. `Writer.write_rejects(rejects_df, target)` — escrita rejects
-  6. `EtlControl.register(...)` — registro de execução
-  7. `QualityMetrics.save(target, ...)` — métricas de qualidade
+  3. `DataQuality.validate(df, target, source)` — validation
+  4. `Writer.write(valid_df, target, source)` — write valid data
+  5. `Writer.write_rejects(rejects_df, target)` — write rejects
+  6. `EtlControl.register(...)` — execution log
+  7. `QualityMetrics.save(target, ...)` — quality metrics
 
-### RF08 — Infraestrutura como Código
-- Módulo Terraform completo em `infra/` com:
-  - KMS key para criptografia dos dados do Glue job
-  - Glue Security Configuration (SSE-KMS para CloudWatch, SSE-KMS para S3)
-  - Glue Connection tipo NETWORK para acesso à VPC
-  - Glue Job com Spark configs passadas via `--conf` (AQE, shuffle, memória, compressão)
-  - `data.archive_file.helpers` + `aws_s3_object.*` para upload declarativo de scripts Python e configs JSON ao S3
-  - Databases e tabelas Glue Catalog **não são criados** — já existem no Data Lake
+### FR08 — Infrastructure as Code
+- Complete Terraform module in `infra/` with:
+  - KMS key for Glue job data encryption
+  - Glue Security Configuration (SSE-KMS for CloudWatch, SSE-KMS for S3)
+  - Glue Connection type NETWORK for VPC access
+  - Glue Job with Spark configs passed via `--conf` (AQE, shuffle, memory, compression)
+  - `data.archive_file.helpers` + `aws_s3_object.*` for declarative upload of Python scripts and JSON configs to S3
+  - Glue Catalog databases and tables are **not created** — they already exist in the Data Lake
 
-### RF09 — Spark Configs Dinâmicas (--conf)
-- Configurações Spark definidas no Terraform (`locals.spark_properties`) e convertidas em string `--conf`
-- `main.py` parseia o argumento `--conf` via `_parse_conf()` e aplica cada propriedade dinamicamente ao `SparkSession.builder`
-- Nenhum valor Spark hardcoded no código Python — totalmente configurável via Terraform
-- Logging estruturado com CloudWatch
-- Tratamento de erros com retry e notificação
+### FR09 — Dynamic Spark Configs (--conf)
+- Spark configs defined in Terraform (`locals.spark_properties`) and converted to `--conf` string
+- `main.py` parses the `--conf` argument via `_parse_conf()` and applies each property dynamically to `SparkSession.builder`
+- No Spark values hardcoded in Python code — fully configurable via Terraform
+- Structured logging with CloudWatch
+- Error handling with retry and notification
 
-### RF10 — Spark Configs de Otimização
-- AQE (Adaptive Query Execution) habilitado
-- Configurações de memória do executor e driver (4g cada, 2g overhead)
-- Off-heap memory habilitado
-- Dynamic allocation com shuffle tracking
-- Configurações de shuffle e paralelismo (200 partições)
-- Compressão Snappy
+### FR10 — Spark Optimization Configs
+- AQE (Adaptive Query Execution) enabled
+- Executor and driver memory settings (4g each, 2g overhead)
+- Off-heap memory enabled
+- Dynamic allocation with shuffle tracking
+- Shuffle and parallelism settings (200 partitions)
+- Snappy compression
 
-### RF11 — Testes
-- Testes unitários com **pytest** mockando Spark e serviços AWS
-- Cobertura mínima de **100%** do código
-- Testes de integração com **boto3** validando S3, Glue Catalog e dados
+### FR11 — Tests
+- Unit tests with **pytest** mocking Spark and AWS services
+- Minimum **100%** code coverage
+- Integration tests with **boto3** validating S3, Glue Catalog and data
 
-### RF12 — Setup e Rollback via Scripts
-- `scripts/setup-env.sh`: provisionar ambiente AWS via Terraform (upload de artefatos é feito pelo Terraform)
-- `scripts/rollback-setup.sh`: destruir recursos Terraform (sem limpeza de S3)
+### FR12 — Setup and Rollback via Scripts
+- `scripts/setup-env.sh`: provision AWS environment via Terraform (artifact upload done by Terraform)
+- `scripts/rollback-setup.sh`: destroy Terraform resources (no S3 cleanup)
 
-## 4. Requisitos Não-Funcionais
+## 4. Non-Functional Requirements
 
-| ID | Requisito | Descrição |
+| ID | Requirement | Description |
 |----|-----------|-----------|
-| RNF01 | Latência | Processamento em mini-batches de até 60s |
-| RNF02 | Escalabilidade | Job deve escalar horizontalmente com Spark 4.0 + AQE |
-| RNF03 | Tolerância a falhas | Checkpointing S3 para recovery automático |
-| RNF04 | Custo | Uso de spot instances quando possível |
-| RNF05 | Segurança | Dados criptografados com KMS, IAM least-privilege |
-| RNF06 | Pure Spark | Nenhuma API Glue utilizada (GlueContext, DynamicFrame, Job) |
-| RNF06 | Manutenibilidade | Código modular com dataclasses, type hints e classes separadas |
-| RNF07 | Testabilidade | Testes unitários com mock e testes de integração reais |
+| NFR01 | Latency | Processing in mini-batches up to 60s |
+| NFR02 | Scalability | Job must scale horizontally with Spark 4.0 + AQE |
+| NFR03 | Fault tolerance | S3 checkpointing for automatic recovery |
+| NFR04 | Cost | Use spot instances when possible |
+| NFR05 | Security | Data encrypted with KMS, IAM least-privilege |
+| NFR06 | Pure Spark | No Glue APIs used (GlueContext, DynamicFrame, Job) |
+| NFR06 | Maintainability | Modular code with dataclasses, type hints and separate classes |
+| NFR07 | Testability | Unit tests with mock and real integration tests |
 
-## 5. Stack Tecnológica
+## 5. Technology Stack
 
-| Componente | Tecnologia |
+| Component | Technology |
 |------------|-----------|
-| Processamento | **AWS Glue 5.1** (PySpark 4.0) |
-| Linguagem | Python 3.10+ com dataclasses e type hints |
-| Armazenamento | Amazon S3 (Delta Lake para target / Parquet para rejects) |
-| Catálogo | AWS Glue Data Catalog |
-| Orquestração | Glue Job Triggers / EventBridge |
-| Monitoramento | CloudWatch Logs + Metrics |
-| Infraestrutura | Terraform (IaC) |
-| Testes unitários | pytest + unittest.mock |
-| Testes integração | pytest + boto3 |
-| Segurança | AWS KMS + IAM + Lake Formation |
+| Processing | **AWS Glue 5.1** (PySpark 4.0) |
+| Language | Python 3.10+ with dataclasses and type hints |
+| Storage | Amazon S3 (Delta Lake for target / Parquet for rejects) |
+| Catalog | AWS Glue Data Catalog |
+| Orchestration | Glue Job Triggers / EventBridge |
+| Monitoring | CloudWatch Logs + Metrics |
+| Infrastructure | Terraform (IaC) |
+| Unit Tests | pytest + unittest.mock |
+| Integration Tests | pytest + boto3 |
+| Security | AWS KMS + IAM + Lake Formation |
 
-## 6. Métricas de Sucesso
+## 6. Success Metrics
 
-| Métrica | Alvo |
+| Metric | Target |
 |---------|------|
-| Registros processados/min | ≥ 10.000 |
+| Records processed/min | ≥ 10,000 |
 | Taxa de validade | ≥ 99% |
 | Latência ponta-a-ponta | < 120s |
 | Cobertura de testes unitários | ≥ 100% |

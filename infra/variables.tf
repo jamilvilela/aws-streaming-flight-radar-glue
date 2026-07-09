@@ -81,15 +81,39 @@ variable "glue_iam_role_name" {
 }
 
 variable "glue_worker_type" {
-  description = "Glue worker type (G.1X, G.2X, etc.)"
+  description = "[DEPRECATED] Glue worker type — use *_worker_type variables below"
   type        = string
   default     = "G.1X"
 }
 
 variable "glue_number_of_workers" {
-  description = "Number of Glue workers"
+  description = "[DEPRECATED] Number of Glue workers — use *_number_of_workers variables below"
   type        = number
   default     = 2
+}
+
+variable "full_load_worker_type" {
+  description = "Glue worker type for the full-load batch job"
+  type        = string
+  default     = "G.1X"
+}
+
+variable "full_load_number_of_workers" {
+  description = "Number of Glue workers for the full-load batch job"
+  type        = number
+  default     = 4
+}
+
+variable "streaming_worker_type" {
+  description = "Glue worker type for the streaming (CDC) job"
+  type        = string
+  default     = "G.0.25X"
+}
+
+variable "streaming_number_of_workers" {
+  description = "Number of Glue workers for the streaming (CDC) job"
+  type        = number
+  default     = 1
 }
 
 variable "glue_job_timeout" {
@@ -110,14 +134,8 @@ variable "glue_extra_py_files" {
   default     = ""
 }
 
-variable "glue_origins_s3_path" {
-  description = "S3 path to the origins.json config file"
-  type        = string
-  default     = ""
-}
-
-variable "glue_target_s3_path" {
-  description = "S3 path to the target.json config file"
+variable "glue_config_s3_path" {
+  description = "S3 path to the unified config.json file (all tables with sources + targets)"
   type        = string
   default     = ""
 }

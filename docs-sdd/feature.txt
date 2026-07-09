@@ -1,0 +1,121 @@
+the glue job:
+must have a main.py file that initializes spark 4.0 and aws glue 5.1 lib, parses the parameters and instantiates a Processor class;
+must have a Processor class responsible for orchestrating reading, transformations and writing of data;
+must have a Config class responsible for reading the json configuration file with the source settings and their characteristics, and returning a parsed object with the json data.
+must have a Reader class responsible for reading data received in s3 in streaming with job bookmarks and checkpointing functionality. This class must receive the configuration parameters of the sources and their characteristics, read the files and deliver a spark dataframe as output.
+must have a DataQuality class that receives the dataframe from reading and must apply cleansing rules and validations of expected data types, and convert the dataframe to the defined schema. The class must return a valid dataframe for the Processor flow. The class must have a way for invalid records to be sent to a Rejected folder in the Landing bucket. The DataQuality class must be able to read the source schema from the .json configuration file and perform validations dynamically for any source based on the data types.
+must have a Writer class responsible for receiving the dataframe with valid data and storing it in a raw layer table, and this table will be informed through parameters in the .json configuration file containing database, table name, partitions name (list).
+must cover only the "flights" entity coming from DMS, and the other entities will be handled in other load processes.
+
+complementary artifacts:
+-unit tests with pytest mocking spark and glue and other aws services, with 100% code coverage;
+-integration test module with boto3 lib directly accessing the aws services implemented and/or used in this project, for example glue, s3, catalog tables. the tests must cover validation of service implementations, validation of existence of used services, checking of data read and data written by the glue job.
+-bash scripts for setup and rollback in the aws environment via terraform, adjusting the existing scripts in rollback-setup.sh and setup-env.sh.
+-pyspark python scripts can be implemented using data class, annotations, design patterns if interesting and if it is standard in the data engineering market, but if not interesting for this project, implement according to best practices.
+-use spark config to optimize processing and cluster memory usage.
+-suggest new schema for etl_control table with relevant processing information.
+
+data lake information:
+datalake_role_name = "role-datalake-analytics"
+
+buckets = {
+  workspace = "lakehouse-workspace"
+  landing   = "lakehouse-landing"
+  raw       = "lakehouse-raw"
+}
+buckets must be dynamically named with terraform locals:
+locals {
+    buckets = merge(
+        var.buckets, 
+        {
+            workspace = "${var.buckets.workspace}-${data.aws_caller_identity.current.account_id}"
+            landing   = "${var.buckets.landing}-${data.aws_caller_identity.current.account_id}"
+            raw       = "${var.buckets.raw}-${data.aws_caller_identity.current.account_id}"
+            trusted   = "${var.buckets.trusted}-${data.aws_caller_identity.current.account_id}"
+            business  = "${var.buckets.business}-${data.aws_caller_identity.current.account_id}"
+        }
+    )
+}
+source data structure in files docs-sdd\structure_source_directory.md and docs-sdd\schema_source_files.md
+
+databases = {
+  raw      = "db_raw"
+}
+
+tables = {
+  etl_control  = "etl_control"
+  data_quality = "data_quality_metrics"
+  tbl_opensky_flights = "opensky_flights"
+}
+
+metadata of target tables in ./scripts/*.tf folder
+
+.json configuration file of involved tables and files
+[{
+    source: database,
+    database: db_raw,
+    table: opensky_flights
+    format: delta
+    partition_keys = {
+        "event_date": {"type": "date", "comment": "Event date (partition)"},
+    }
+    schema = {
+        "icao24":          {"type": "string", "comment": "ICAO24 aircraft code"},
+        "callsign":        {"type": "string", "comment": "Flight callsign"},
+        "origin_country":  {"type": "string", "comment": "Aircraft country of origin"},
+        "latitude":        {"type": "double", "comment": "Position latitude"},
+        "longitude":       {"type": "double", "comment": "Position longitude"},
+        "altitude":        {"type": "double", "comment": "Altitude in feet"},
+        "velocity":        {"type": "double", "comment": "Velocity in m/s"},
+        "heading":         {"type": "double", "comment": "Direction/heading in degrees"},
+        "last_contact":    {"type": "bigint", "comment": "Last contact timestamp (epoch)"},
+        "event_time":      {"type": "string", "comment": "Event time"},
+        "location":        {"type": "string", "comment": "Location (geoname)"},
+        "cod_unico":       {"type": "string", "comment": "PK concatenation (icao24_event_time)"},
+    }
+
+},
+{
+    source: stream,
+    location:  s3://lakehouse-landing-331504768406/dms/flightradar/flight_radar/,
+    table: flights
+    format: parquet
+    partition_keys: [
+        {
+            name = "year"
+            type = "int"
+        }
+        {
+            name = "month"
+            type = "int"
+        }
+        {
+            name = "day"
+            type = "int"
+        }
+    ],
+    schema = {
+        "flight_id":            {"type": "BIGINT",         "comment": "Flight ID (PK)"},
+        "flight_number":        {"type": "VARCHAR(10)",    "comment": "Flight number (e.g. AA1234)"},
+        "airline_icao":         {"type": "VARCHAR(3)",     "comment": "FK → airlines"},
+        "aircraft_icao24":      {"type": "VARCHAR(6)",     "comment": "FK → aircraft"},
+        "origin_airport":       {"type": "VARCHAR(4)",     "comment": "FK → airports (origin)"},
+        "destination_airport":  {"type": "VARCHAR(4)",     "comment": "FK → airports (destination)"},
+        "scheduled_departure":  {"type": "TIMESTAMPTZ",    "comment": "Scheduled departure"},
+        "scheduled_arrival":    {"type": "TIMESTAMPTZ",    "comment": "Scheduled arrival"},
+        "actual_departure":     {"type": "TIMESTAMPTZ",    "comment": "Actual departure"},
+        "actual_arrival":       {"type": "TIMESTAMPTZ",    "comment": "Actual arrival"},
+        "status":               {"type": "VARCHAR(20)",    "comment": "Status (scheduled, active, landed, cancelled, diverted)"},
+        "created_at":           {"type": "TIMESTAMPTZ",    "comment": "Creation date"},
+        "updated_at":           {"type": "TIMESTAMPTZ",    "comment": "Update date"},
+        "dms_timestamp":        {"type": "TIMESTAMPTZ",    "comment": "DMS timestamp"},
+        "Op":                   {"type": "CHAR(1)",        "comment": "Operation: `I` (insert), `U` (update), `D` (delete)"},
+    }
+}
+]
+
+the glue job files must be inside the app/ folder 
+aws-streaming-flight-radar-glue\app\src
+aws-streaming-flight-radar-glue\app\infra
+aws-streaming-flight-radar-glue\app\tests
+aws-streaming-flight-radar-glue\app\config
