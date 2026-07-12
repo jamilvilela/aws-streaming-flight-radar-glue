@@ -25,19 +25,19 @@ class TestGlueCatalogDatabases:
 class TestGlueCatalogTables:
     """Validate Glue Catalog tables in db_raw."""
 
-    def test_tbl_opensky_flights_exists(self, glue_client):
-        """The 'tbl_opensky_flights' table must exist in db_raw."""
+    def test_tbl_flights_exists(self, glue_client):
+        """The 'tbl_flights' table must exist in db_raw."""
         response = glue_client.get_table(
             DatabaseName="db_raw",
-            Name="tbl_opensky_flights",
+            Name="tbl_flights",
         )
-        assert response["Table"]["Name"] == "tbl_opensky_flights"
+        assert response["Table"]["Name"] == "tbl_flights"
 
-    def test_tbl_opensky_flights_has_columns(self, glue_client):
-        """The tbl_opensky_flights table should have the expected columns."""
+    def test_tbl_flights_has_columns(self, glue_client):
+        """The tbl_flights table should have the expected columns."""
         response = glue_client.get_table(
             DatabaseName="db_raw",
-            Name="tbl_opensky_flights",
+            Name="tbl_flights",
         )
         sd = response["Table"].get("StorageDescriptor", {})
         columns = sd.get("Columns", [])

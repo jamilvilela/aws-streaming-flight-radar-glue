@@ -57,12 +57,12 @@ resource "aws_glue_security_configuration" "glue" {
   encryption_configuration {
     cloudwatch_encryption {
       cloudwatch_encryption_mode = "SSE-KMS"
-      kms_key_arn               = aws_kms_key.glue.arn
+      kms_key_arn                = aws_kms_key.glue.arn
     }
 
     job_bookmarks_encryption {
       job_bookmarks_encryption_mode = "CSE-KMS"
-      kms_key_arn                  = aws_kms_key.glue.arn
+      kms_key_arn                   = aws_kms_key.glue.arn
     }
 
     s3_encryption {
@@ -75,14 +75,11 @@ resource "aws_glue_security_configuration" "glue" {
 # ── Glue Connection (VPC) ────────────────────────────────────────────────────
 
 resource "aws_glue_connection" "vpc" {
-  name = "glue-streaming-minibatch-dms-vpc"
-
-  connection_properties = {
-    CONNECTION_TYPE = "NETWORK"
-  }
+  name            = "glue-streaming-minibatch-dms-vpc"
+  connection_type = "NETWORK"
 
   physical_connection_requirements {
-    availability_zone      = data.aws_subnet.all[keys(data.aws_subnet.all)[0]].availability_zone
+    availability_zone = data.aws_subnet.all[keys(data.aws_subnet.all)[0]].availability_zone
     # Prefer private subnets; fall back to any subnet if none are private
     subnet_id              = length(data.aws_subnets.private.ids) > 0 ? data.aws_subnets.private.ids[0] : data.aws_subnets.all.ids[0]
     security_group_id_list = [data.aws_security_group.default.id]
@@ -117,12 +114,12 @@ resource "aws_glue_job" "full_load_batch" {
     "--enable-continuous-cloudwatch-log" = "true"
 
     # Job configuration
-    "--config_s3_path"       = local.config_s3_path
-    "--extra-py-files"       = local.extra_py_files
-    "--mode"                 = "batch"
+    "--config_s3_path" = local.config_s3_path
+    "--extra-py-files" = local.extra_py_files
+    "--mode"           = "batch"
 
     # Spark configs passed via --conf (parsed dynamically by main.py)
-    "--conf"                  = local.spark_conf
+    "--conf" = local.spark_conf
 
     # Security configuration
     "--encryption-type"        = "sse-s3-kms"
@@ -161,12 +158,12 @@ resource "aws_glue_job" "streaming_minibatch_dms" {
     "--enable-continuous-cloudwatch-log" = "true"
 
     # Job configuration
-    "--config_s3_path"       = local.config_s3_path
-    "--extra-py-files"       = local.extra_py_files
-    "--mode"                 = "streaming"
+    "--config_s3_path" = local.config_s3_path
+    "--extra-py-files" = local.extra_py_files
+    "--mode"           = "streaming"
 
     # Spark configs passed via --conf (parsed dynamically by main.py)
-    "--conf"                  = local.spark_conf
+    "--conf" = local.spark_conf
 
     # Security configuration
     "--encryption-type"        = "sse-s3-kms"
@@ -255,8 +252,8 @@ resource "aws_cloudwatch_event_target" "start_glue_batch" {
 # ── Glue Trigger — Start Streaming After Full Load ───────────────────────────
 
 resource "aws_glue_trigger" "start_streaming_after_full_load" {
-  name     = "${var.glue_job_name}-start-streaming"
-  type     = "CONDITIONAL"
+  name = "${var.glue_job_name}-start-streaming"
+  type = "CONDITIONAL"
 
   actions {
     job_name = aws_glue_job.streaming_minibatch_dms.name
@@ -292,19 +289,19 @@ data "archive_file" "helpers" {
 # using declarative aws_s3_object resources.
 
 resource "aws_s3_object" "main_py" {
-  bucket       = local.buckets.workspace
-  key          = "scripts/glue-streaming-minibatch-dms/main.py"
-  source       = "${path.module}/../app/src/main.py"
-  source_hash  = filemd5("${path.module}/../app/src/main.py")
-  tags         = local.common_tags
+  bucket      = local.buckets.workspace
+  key         = "scripts/glue-streaming-minibatch-dms/main.py"
+  source      = "${path.module}/../app/src/main.py"
+  source_hash = filemd5("${path.module}/../app/src/main.py")
+  tags        = local.common_tags
 }
 
 resource "aws_s3_object" "helpers_zip" {
-  bucket       = local.buckets.workspace
-  key          = "dependencies/helpers.zip"
-  source       = data.archive_file.helpers.output_path
-  source_hash  = data.archive_file.helpers.output_md5
-  tags         = local.common_tags
+  bucket      = local.buckets.workspace
+  key         = "dependencies/helpers.zip"
+  source      = data.archive_file.helpers.output_path
+  source_hash = data.archive_file.helpers.output_md5
+  tags        = local.common_tags
 }
 
 resource "aws_s3_object" "config_json" {

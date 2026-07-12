@@ -38,8 +38,8 @@ def spark():
 @pytest.fixture
 def flights_target():
     return TargetConfig(
-        catalog={"database": "db_raw", "table": "tbl_opensky_flights"},
-        location="s3://raw/tables/opensky/flights/",
+        catalog={"database": "db_raw", "table": "tbl_flights"},
+        location="s3://raw/tables/tbl_flights/",
         rejected_location="s3://landing/dms/flightradar/flight_radar/Rejected/",
         format="parquet",
         compression="snappy",
@@ -168,7 +168,7 @@ class TestDataQuality:
         if not rejects.isEmpty():
             row = rejects.collect()[0]
             assert hasattr(row, "_reject_table")
-            assert row._reject_table == "tbl_opensky_flights"
+            assert row._reject_table == "tbl_flights"
             assert hasattr(row, "_reject_rule")
 
     def test_resolve_type(self, dq):

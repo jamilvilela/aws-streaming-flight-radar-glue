@@ -16,32 +16,32 @@ locals {
   }
 
   # Glue script and config S3 paths (defaults if not explicitly provided)
-  script_location   = var.glue_script_location != "" ? var.glue_script_location : "s3://${local.buckets.workspace}/scripts/glue-streaming-minibatch-dms/main.py"
-  config_s3_path    = var.glue_config_s3_path != "" ? var.glue_config_s3_path : "s3://${local.buckets.workspace}/config/config.json"
-  extra_py_files    = var.glue_extra_py_files != "" ? var.glue_extra_py_files : "s3://${local.buckets.workspace}/dependencies/helpers.zip"
+  script_location = var.glue_script_location != "" ? var.glue_script_location : "s3://${local.buckets.workspace}/scripts/glue-streaming-minibatch-dms/main.py"
+  config_s3_path  = var.glue_config_s3_path != "" ? var.glue_config_s3_path : "s3://${local.buckets.workspace}/config/config.json"
+  extra_py_files  = var.glue_extra_py_files != "" ? var.glue_extra_py_files : "s3://${local.buckets.workspace}/dependencies/helpers.zip"
 
   # KMS key alias
   kms_key_alias = "alias/glue-streaming-minibatch-dms"
 
   # Spark configuration properties (passed via --conf)
   spark_properties = {
-    "spark.sql.adaptive.enabled"                    = "true"
-    "spark.sql.adaptive.coalescePartitions.enabled" = "true"
-    "spark.sql.adaptive.skewJoin.enabled"           = "true"
+    "spark.sql.adaptive.enabled"                      = "true"
+    "spark.sql.adaptive.coalescePartitions.enabled"   = "true"
+    "spark.sql.adaptive.skewJoin.enabled"             = "true"
     "spark.sql.adaptive.advisoryPartitionSizeInBytes" = "128MB"
-    "spark.sql.shuffle.partitions"                  = "200"
-    "spark.sql.parquet.compression.codec"           = "snappy"
-    "spark.executor.memory"                         = "4g"
-    "spark.driver.memory"                           = "4g"
-    "spark.executor.memoryOverhead"                 = "2g"
-    "spark.driver.memoryOverhead"                   = "2g"
-    "spark.memory.offHeap.enabled"                  = "true"
-    "spark.memory.offHeap.size"                     = "2g"
-    "spark.dynamicAllocation.enabled"               = "true"
+    "spark.sql.shuffle.partitions"                    = "200"
+    "spark.sql.parquet.compression.codec"             = "snappy"
+    "spark.executor.memory"                           = "4g"
+    "spark.driver.memory"                             = "4g"
+    "spark.executor.memoryOverhead"                   = "2g"
+    "spark.driver.memoryOverhead"                     = "2g"
+    "spark.memory.offHeap.enabled"                    = "true"
+    "spark.memory.offHeap.size"                       = "2g"
+    "spark.dynamicAllocation.enabled"                 = "true"
     "spark.dynamicAllocation.shuffleTracking.enabled" = "true"
-    "spark.sql.streaming.schemaInference"           = "true"
-    "spark.sql.parquet.mergeSchema"                 = "false"
-    "spark.glue.disable.optimization"               = "false"
+    "spark.sql.streaming.schemaInference"             = "true"
+    "spark.sql.parquet.mergeSchema"                   = "false"
+    "spark.glue.disable.optimization"                 = "false"
     # Delta Lake / Lakehouse configs
     "spark.databricks.delta.properties.defaults.autoOptimize.optimizeWrite" = "true"
     "spark.databricks.delta.properties.defaults.autoOptimize.autoCompact"   = "true"

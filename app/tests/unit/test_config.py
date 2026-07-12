@@ -105,9 +105,9 @@ class TestTargetConfig:
         assert cfg.catalog == {}
 
     def test_database_table_properties(self):
-        cfg = TargetConfig(catalog={"database": "db_raw", "table": "tbl_opensky_flights"})
+        cfg = TargetConfig(catalog={"database": "db_raw", "table": "tbl_flights"})
         assert cfg.database == "db_raw"
-        assert cfg.table == "tbl_opensky_flights"
+        assert cfg.table == "tbl_flights"
 
     def test_to_dict_roundtrip(self):
         cfg = TargetConfig(
@@ -144,8 +144,8 @@ class TestConfig:
         },
         "checkpoint_location": "s3://workspace/checkpoints/flights/",
         "target": {
-            "catalog": {"database": "db_raw", "table": "tbl_opensky_flights"},
-            "location": "s3://raw/tables/opensky/flights/",
+            "catalog": {"database": "db_raw", "table": "tbl_flights"},
+            "location": "s3://raw/tables/tbl_flights/",
             "rejected_location": "s3://landing/dms/flightradar/flight_radar/Rejected/",
             "format": "parquet",
             "compression": "snappy",
@@ -164,7 +164,7 @@ class TestConfig:
         config = Config.from_dicts(self.SOURCE_WITH_TARGET)
         assert config.source.source == "flights"
         assert config.target.database == "db_raw"
-        assert config.target.table == "tbl_opensky_flights"
+        assert config.target.table == "tbl_flights"
 
     def test_from_dicts_list_source(self):
         """Source as a list should be parsed correctly."""
@@ -184,7 +184,7 @@ class TestConfig:
         try:
             config = Config.from_file(path)
             assert config.source.source == "flights"
-            assert config.target.table == "tbl_opensky_flights"
+            assert config.target.table == "tbl_flights"
         finally:
             Path(path).unlink()
 

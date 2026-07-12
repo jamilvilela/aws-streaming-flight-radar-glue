@@ -16,9 +16,16 @@ databases = {
 }
 
 tables = {
-  tbl_opensky_flights = "tbl_opensky_flights"
-  etl_control         = "etl_control"
-  data_quality        = "data_quality_metrics"
+  tbl_aircraft           = "tbl_aircraft"
+  tbl_airports           = "tbl_airports"
+  tbl_airlines           = "tbl_airlines"
+  tbl_flights            = "tbl_flights"
+  tbl_aircraft_positions = "tbl_aircraft_positions"
+  tbl_countries          = "tbl_countries"
+  tbl_aircraft_types     = "tbl_aircraft_types"
+  tbl_routes             = "tbl_routes"
+  etl_control            = "etl_control"
+  data_quality           = "data_quality_metrics"
 }
 
 buckets = {

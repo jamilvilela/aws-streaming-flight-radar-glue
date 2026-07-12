@@ -38,8 +38,8 @@ def flights_source():
 @pytest.fixture
 def flights_target():
     return TargetConfig(
-        catalog={"database": "db_raw", "table": "tbl_opensky_flights"},
-        location="s3://raw/tables/opensky/flights/",
+        catalog={"database": "db_raw", "table": "tbl_flights"},
+        location="s3://raw/tables/tbl_flights/",
         rejected_location="s3://landing/dms/flightradar/flight_radar/Rejected/",
         format="delta",
         compression="snappy",

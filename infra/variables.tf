@@ -22,10 +22,10 @@ variable "control_account" {
 
 variable "databases" {
   description = "Glue Data Catalog database names"
-  type        = object({
-    landing = string
-    raw     = string
-    trusted = string
+  type = object({
+    landing  = string
+    raw      = string
+    trusted  = string
     business = string
   })
   default = {
@@ -38,21 +38,35 @@ variable "databases" {
 
 variable "tables" {
   description = "Glue Data Catalog table names"
-  type        = object({
-    tbl_opensky_flights = string
-    etl_control         = string
-    data_quality        = string
+  type = object({
+    tbl_aircraft           = string
+    tbl_airports           = string
+    tbl_airlines           = string
+    tbl_flights            = string
+    tbl_aircraft_positions = string
+    tbl_countries          = string
+    tbl_aircraft_types     = string
+    tbl_routes             = string
+    etl_control            = string
+    data_quality           = string
   })
   default = {
-    tbl_opensky_flights = "tbl_opensky_flights"
-    etl_control         = "etl_control"
-    data_quality        = "data_quality_metrics"
+    tbl_aircraft           = "tbl_aircraft"
+    tbl_airports           = "tbl_airports"
+    tbl_airlines           = "tbl_airlines"
+    tbl_flights            = "tbl_flights"
+    tbl_aircraft_positions = "tbl_aircraft_positions"
+    tbl_countries          = "tbl_countries"
+    tbl_aircraft_types     = "tbl_aircraft_types"
+    tbl_routes             = "tbl_routes"
+    etl_control            = "etl_control"
+    data_quality           = "data_quality_metrics"
   }
 }
 
 variable "buckets" {
   description = "S3 bucket names (without account ID suffix)"
-  type        = object({
+  type = object({
     landing   = string
     raw       = string
     trusted   = string
