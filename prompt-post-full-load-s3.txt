@@ -1,0 +1,23 @@
+- o aws dms não fará mais a carga full load. dms faz cdc com start position lsn passada por parametro ao iniciar o dms cdc. aws dms cdc envia dados para kinesis stream como endpoint. O projeto aws dms está em outro repositorio e nao precisa ser criado nada sobre dms aqui.
+
+no terraform tfvars, nao expor o account number. utilizar terraform resource data para encontrar o account_id;
+adicionar a variable terraform var.project_name="flight-radar-stream";
+
+alterar o projeto:
+- não haverá mais origem de dados no s3.
+- arquivo config deverá ter como sources as tabelas do database aurora postgres que será acessado via spark.read jdbc. cada leitura de tabela deve ter parametros de leitura jdbs upperBound, lowerBound, numPartitions otimizadas para paralelismo de leitura. configurar os dados de conexão com o postgres atraves de dados armazenados no secrets manager que está configurado  em arquivo .env na pasta raiz do projeto. cada source deve ter os parametros para configurar o kinesis data stream de onde consumirá dados de cdc via spark streaming. os recursos kinesis stream receberam os nomes baseados nesta configuração do terraform no repositorio de criação do kinesis:  kinesis_stream_names = {
+    for table in var.table_names :
+    table => "${var.project_name}-cdc-${table}"
+  }
+- cada tabela configurada em um dict "source" no arquivo config.json deve ter uma chave "start_date" para ser passada como filtro do spark read, trazendo apenas os dados que foram cadastrados desta start date em diante. Caso a tabela nao tenha data de cadastro, fazer carga de todos os registros. Todas as tabelas estão no mesmo database (flightradar) do postgres aurora. o schema das tabelas permace com as mesmas colunas e tipos de dados, porem com uma alteração onde o glue job stream deve fazer soft delete no merge into  e para isto precisará de uma coluna em cada tabela para informar se o registro está active ou inactive. como este campo existirá apenas na tabela target, podemo inclui-lo aqui, e depois eu vou replicar este campo na criação da tabela no data lake em outro repositorio.
+- o glue job full load deverá iniciar obtendo o lsn: SELECT pg_current_wal_lsn() AS lsn_before_full_load.  
+    Executa a carga full load completa. 
+    Imediatamente após terminar, captura o LSN novamente: SELECT pg_current_wal_lsn() AS lsn_after_full_load.  
+    o glue job full load deverá Validar consistência (contagem de registros, checksum). Caso encontre erro, abortar. Caso encontre inconsistencia que poderá ser corrigida, enviar msg para o log para ser tratada posteriormente.
+    O job deverá inicializar e configurar o DMS CDC para começar a partir do `lsn_before_full_load`,  isso garante que nenhuma transação ocorrida durante a full load seja perdida. O DMS usa `CdcStartPosition` no `replication_settings` {  "CdcStartPosition": "LSN=<lsn_before_full_load>"}. usa-se a API StartReplication com o parâmetro CdcStartPosition após configurar a replicação. O serviço dms cdc estará criado no ambiente produção e o glue job full load deverá inicializa-lo. O nome do DMS cdc deve ser informado como parametro no arguments do glue job, que deverá montar o ARN e executar via boto3 passando "Parameters": {
+        "ReplicationConfigArn": "${dms_replication_config_arn}",
+        StartReplicationType="start-replication",
+        "CdcStartPosition.$": "$.lsn"
+      }
+-crirar policies roles e endpoints conforme necessario.
+- ajustar a documentação sdd para contemplar estas definiçoes. nao escrever na doc sdd que estas infos são melhorias ou alterações. apenas escreva como se fosse a definição as-is.

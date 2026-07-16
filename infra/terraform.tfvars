@@ -3,13 +3,10 @@
 #===============================================================================
 
 region = "us-east-1"
-
 environment = "dev"
-
-control_account = "331504768406"
+#control_account = "331504768406"
 
 databases = {
-  landing  = ""
   raw      = "db_raw"
   trusted  = "db_trusted"
   business = "db_business"
@@ -28,13 +25,6 @@ tables = {
   data_quality           = "data_quality_metrics"
 }
 
-buckets = {
-  landing   = "lakehouse-landing-331504768406"
-  raw       = "lakehouse-raw-331504768406"
-  trusted   = "lakehouse-trusted-331504768406"
-  business  = "lakehouse-business-331504768406"
-  workspace = "lakehouse-workspace-331504768406"
-}
 
 glue_job_name = "glue-streaming-minibatch-dms"
 
