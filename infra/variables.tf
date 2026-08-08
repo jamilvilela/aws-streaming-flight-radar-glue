@@ -1,5 +1,5 @@
 #===============================================================================
-# Variables — Glue Streaming Mini-Batch DMS Module
+# Variables — Glue Streaming Mini-Batch Module
 #===============================================================================
 
 variable "region" {
@@ -17,19 +17,16 @@ variable "environment" {
 variable "control_account" {
   description = "AWS account ID for the data lake"
   type        = string
-  default     = "331504768406"
 }
 
 variable "databases" {
   description = "Glue Data Catalog database names"
   type = object({
-    landing  = string
     raw      = string
     trusted  = string
     business = string
   })
   default = {
-    landing  = ""
     raw      = "db_raw"
     trusted  = "db_trusted"
     business = "db_business"
@@ -73,19 +70,18 @@ variable "buckets" {
     business  = string
     workspace = string
   })
-  default = {
-    landing   = "lakehouse-landing-331504768406"
-    raw       = "lakehouse-raw-331504768406"
-    trusted   = "lakehouse-trusted-331504768406"
-    business  = "lakehouse-business-331504768406"
-    workspace = "lakehouse-workspace-331504768406"
-  }
 }
 
 variable "glue_job_name" {
-  description = "Name of the Glue job"
+  description = "Name of the streaming Glue job (CDC)"
   type        = string
-  default     = "glue-streaming-minibatch-dms"
+  default     = "glue-flight-radar-stream-cdc"
+}
+
+variable "full_load_job_name" {
+  description = "Name of the full-load batch Glue job"
+  type        = string
+  default     = "glue-flight-radar-full-load"
 }
 
 variable "glue_iam_role_name" {
@@ -121,13 +117,13 @@ variable "full_load_number_of_workers" {
 variable "streaming_worker_type" {
   description = "Glue worker type for the streaming (CDC) job"
   type        = string
-  default     = "G.0.25X"
+  default     = "G.1X"
 }
 
 variable "streaming_number_of_workers" {
   description = "Number of Glue workers for the streaming (CDC) job"
   type        = number
-  default     = 1
+  default     = 2
 }
 
 variable "glue_job_timeout" {

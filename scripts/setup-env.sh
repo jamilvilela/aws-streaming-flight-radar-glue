@@ -17,7 +17,7 @@
 set -euo pipefail
 
 # ─── Configurações ───────────────────────────────────────────────────────────
-ENV="${1:-dev}"
+ENV="${1:-prod}"
 ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text 2>/dev/null || echo "000000000000")
 REGION="${AWS_REGION:-us-east-1}"
 WORKSPACE_BUCKET="lakehouse-workspace-${ACCOUNT_ID}"
@@ -70,16 +70,9 @@ init_terraform() {
     log_info "Inicializando Terraform em ${TERRAFORM_DIR}..."
     cd "${TERRAFORM_DIR}"
 
-    if [ ! -d ".terraform" ]; then
-        terraform init \
-            -backend-config="bucket=${WORKSPACE_BUCKET}" \
-            -backend-config="key=terraform/state/streaming-glue-job" \
-            -backend-config="region=${REGION}" \
-            -reconfigure
-        log_ok "Terraform init concluído"
-    else
-        log_info "Terraform já inicializado. Pulando..."
-    fi
+    terraform init
+
+    log_ok "Terraform init concluído"
 }
 
 # ─── Selecionar/Aplicar Workspace ────────────────────────────────────────────

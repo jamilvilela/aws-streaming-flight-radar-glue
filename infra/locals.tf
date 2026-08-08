@@ -16,12 +16,12 @@ locals {
   }
 
   # Glue script and config S3 paths (defaults if not explicitly provided)
-  script_location = var.glue_script_location != "" ? var.glue_script_location : "s3://${local.buckets.workspace}/scripts/glue-streaming-minibatch-dms/main.py"
+  script_location = var.glue_script_location != "" ? var.glue_script_location : "s3://${local.buckets.workspace}/scripts/glue-flight-radar-stream-cdc/main.py"
   config_s3_path  = var.glue_config_s3_path != "" ? var.glue_config_s3_path : "s3://${local.buckets.workspace}/config/config.json"
   extra_py_files  = var.glue_extra_py_files != "" ? var.glue_extra_py_files : "s3://${local.buckets.workspace}/dependencies/helpers.zip"
 
   # KMS key alias
-  kms_key_alias = "alias/glue-streaming-minibatch-dms"
+  kms_key_alias = "alias/glue-flight-radar-stream-cdc"
 
   # Spark configuration properties (passed via --conf)
   spark_properties = {

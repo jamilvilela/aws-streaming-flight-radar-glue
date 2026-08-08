@@ -1,20 +1,35 @@
 #===============================================================================
-# Outputs — Glue Streaming Mini-Batch DMS Module
+# Outputs — Glue Streaming Mini-Batch Module
 #===============================================================================
 
 output "glue_job_id" {
-  description = "Glue job ID"
-  value       = aws_glue_job.streaming_minibatch_dms.id
+  description = "Streaming Glue job ID"
+  value       = aws_glue_job.streaming_minibatch.id
 }
 
 output "glue_job_name" {
-  description = "Glue job name"
-  value       = aws_glue_job.streaming_minibatch_dms.name
+  description = "Streaming Glue job name"
+  value       = aws_glue_job.streaming_minibatch.name
 }
 
 output "glue_job_arn" {
-  description = "Glue job ARN"
-  value       = aws_glue_job.streaming_minibatch_dms.arn
+  description = "Streaming Glue job ARN"
+  value       = aws_glue_job.streaming_minibatch.arn
+}
+
+output "full_load_job_id" {
+  description = "Full-load batch Glue job ID"
+  value       = aws_glue_job.full_load_batch.id
+}
+
+output "full_load_job_name" {
+  description = "Full-load batch Glue job name"
+  value       = aws_glue_job.full_load_batch.name
+}
+
+output "full_load_job_arn" {
+  description = "Full-load batch Glue job ARN"
+  value       = aws_glue_job.full_load_batch.arn
 }
 
 output "glue_security_configuration_name" {
@@ -52,19 +67,10 @@ output "config_s3_path" {
   value       = local.config_s3_path
 }
 
-output "full_load_job_name" {
-  description = "Full-load batch Glue job name"
-  value       = aws_glue_job.full_load_batch.name
-}
-
-output "full_load_job_arn" {
-  description = "Full-load batch Glue job ARN"
-  value       = aws_glue_job.full_load_batch.arn
-}
 
 output "eventbridge_rule_name" {
-  description = "EventBridge rule name for DMS full load completion"
-  value       = aws_cloudwatch_event_rule.dms_full_load_complete.name
+  description = "EventBridge rule name for full load completion"
+  value       = aws_cloudwatch_event_rule.full_load_complete.name
 }
 
 output "glue_trigger_name" {

@@ -1,7 +1,7 @@
-Here is the complete structure of the `lakehouse-landing-331504768406` bucket in tree format:
+Here is the complete structure of the `lakehouse-landing-${local.account_id}` bucket in tree format:
 
 ```
-lakehouse-landing-331504768406/
+lakehouse-landing-${local.account_id}/
 │
 ├── dms/
 │   └── flightradar/

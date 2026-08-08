@@ -1,11 +1,11 @@
 #===============================================================================
-# Main Resources — Glue Streaming Mini-Batch DMS Module
+# Main Resources — Glue Streaming Mini-Batch Module
 #===============================================================================
 
 # ── KMS Key for Glue encryption ──────────────────────────────────────────────
 
 resource "aws_kms_key" "glue" {
-  description             = "KMS key for Glue Streaming Mini-Batch DMS job encryption"
+  description             = "KMS key for Glue Streaming Mini-Batch job encryption"
   deletion_window_in_days = 30
   enable_key_rotation     = true
 
@@ -52,7 +52,7 @@ resource "aws_kms_alias" "glue" {
 # ── Glue Security Configuration ──────────────────────────────────────────────
 
 resource "aws_glue_security_configuration" "glue" {
-  name = "glue-streaming-minibatch-dms-security-config"
+  name = "glue-flight-radar-stream-cdc-security-config"
 
   encryption_configuration {
     cloudwatch_encryption {
@@ -75,7 +75,7 @@ resource "aws_glue_security_configuration" "glue" {
 # ── Glue Connection (VPC) ────────────────────────────────────────────────────
 
 resource "aws_glue_connection" "vpc" {
-  name            = "glue-streaming-minibatch-dms-vpc"
+  name            = "glue-flight-radar-stream-cdc-vpc"
   connection_type = "NETWORK"
 
   physical_connection_requirements {
@@ -86,29 +86,32 @@ resource "aws_glue_connection" "vpc" {
   }
 
   tags = merge(local.common_tags, {
-    Name = "glue-streaming-minibatch-dms-vpc"
+    Name = "glue-flight-radar-stream-cdc-vpc"
   })
 }
 
 # ── Glue Job — Full-Load Batch ──────────────────────────────────────────────
 
 resource "aws_glue_job" "full_load_batch" {
-  name              = "${var.glue_job_name}-full-load"
+  name              = var.full_load_job_name
   role_arn          = data.aws_iam_role.datalake_analytics.arn
   glue_version      = "5.0"
   worker_type       = var.full_load_worker_type
   number_of_workers = var.full_load_number_of_workers
   timeout           = var.glue_job_timeout
+  execution_class   = "FLEX"
+
+  security_configuration = aws_glue_security_configuration.glue.name
 
   command {
     script_location = local.script_location
-    python_version  = "3.10"
+    python_version  = "3.9"
   }
 
   default_arguments = {
     # Job bookmarks & logging
     "--job-bookmark-option"              = "job-bookmark-enable"
-    "--continuous-log-logGroup"          = "/aws-glue/jobs/${var.glue_job_name}-full-load"
+    "--continuous-log-logGroup"          = "/aws-glue/jobs/${var.full_load_job_name}"
     "--enable-auto-scaling"              = "true"
     "--enable-metrics"                   = "true"
     "--enable-continuous-cloudwatch-log" = "true"
@@ -121,32 +124,38 @@ resource "aws_glue_job" "full_load_batch" {
     # Spark configs passed via --conf (parsed dynamically by main.py)
     "--conf" = local.spark_conf
 
+    # Spark UI
+    "--enable-spark-ui"     = "true"
+    "--spark-event-logs-path" = "s3://${local.buckets.workspace}/spark-logs/${var.full_load_job_name}/"
+
     # Security configuration
-    "--encryption-type"        = "sse-s3-kms"
-    "--security-configuration" = aws_glue_security_configuration.glue.name
+    "--encryption-type" = "sse-s3-kms"
   }
 
   # Associate Glue connection if provided
   connections = length(var.glue_connections) > 0 ? var.glue_connections : [aws_glue_connection.vpc.name]
 
   tags = merge(local.common_tags, {
-    Name = "${var.glue_job_name}-full-load"
+    Name = var.full_load_job_name
   })
 }
 
 # ── Glue Job — Streaming CDC ────────────────────────────────────────────────
 
-resource "aws_glue_job" "streaming_minibatch_dms" {
+resource "aws_glue_job" "streaming_minibatch" {
   name              = var.glue_job_name
   role_arn          = data.aws_iam_role.datalake_analytics.arn
   glue_version      = "5.0"
   worker_type       = var.streaming_worker_type
   number_of_workers = var.streaming_number_of_workers
   timeout           = var.glue_job_timeout
+  execution_class   = "FLEX"
+
+  security_configuration = aws_glue_security_configuration.glue.name
 
   command {
     script_location = local.script_location
-    python_version  = "3.10"
+    python_version  = "3.9"
   }
 
   default_arguments = {
@@ -165,9 +174,12 @@ resource "aws_glue_job" "streaming_minibatch_dms" {
     # Spark configs passed via --conf (parsed dynamically by main.py)
     "--conf" = local.spark_conf
 
+    # Spark UI
+    "--enable-spark-ui"     = "true"
+    "--spark-event-logs-path" = "s3://${local.buckets.workspace}/spark-logs/${var.glue_job_name}/"
+
     # Security configuration
-    "--encryption-type"        = "sse-s3-kms"
-    "--security-configuration" = aws_glue_security_configuration.glue.name
+    "--encryption-type" = "sse-s3-kms"
   }
 
   # Associate Glue connection if provided
@@ -178,10 +190,11 @@ resource "aws_glue_job" "streaming_minibatch_dms" {
   })
 }
 
-# ── EventBridge IAM Role ─────────────────────────────────────────────────────
+# ── Lambda IAM Role ──────────────────────────────────────────────────────────
+# Role for the Lambda function that starts the Glue full-load batch job.
 
-resource "aws_iam_role" "eventbridge_invoke_glue" {
-  name = "role-eventbridge-invoke-glue-${var.glue_job_name}"
+resource "aws_iam_role" "lambda_glue_starter" {
+  name = "role-lambda-start-${var.full_load_job_name}"
 
   assume_role_policy = jsonencode({
     Version = "2012-10-17"
@@ -189,7 +202,7 @@ resource "aws_iam_role" "eventbridge_invoke_glue" {
       {
         Effect = "Allow"
         Principal = {
-          Service = "events.amazonaws.com"
+          Service = "lambda.amazonaws.com"
         }
         Action = "sts:AssumeRole"
       }
@@ -197,13 +210,13 @@ resource "aws_iam_role" "eventbridge_invoke_glue" {
   })
 
   tags = merge(local.common_tags, {
-    Name = "role-eventbridge-invoke-glue-${var.glue_job_name}"
+    Name = "role-lambda-start-${var.full_load_job_name}"
   })
 }
 
-resource "aws_iam_role_policy" "eventbridge_invoke_glue" {
-  name = "eventbridge-invoke-glue-policy"
-  role = aws_iam_role.eventbridge_invoke_glue.id
+resource "aws_iam_role_policy" "lambda_glue_starter" {
+  name = "lambda-start-glue-policy"
+  role = aws_iam_role.lambda_glue_starter.id
 
   policy = jsonencode({
     Version = "2012-10-17"
@@ -216,47 +229,90 @@ resource "aws_iam_role_policy" "eventbridge_invoke_glue" {
         Resource = [
           aws_glue_job.full_load_batch.arn,
         ]
-      }
+      },
+      {
+        Effect = "Allow"
+        Action = [
+          "logs:CreateLogGroup",
+          "logs:CreateLogStream",
+          "logs:PutLogEvents",
+        ]
+        Resource = [
+          "arn:aws:logs:${var.region}:${local.account_id}:log-group:/aws/lambda/${var.full_load_job_name}-starter:*",
+        ]
+      },
     ]
   })
 }
 
-# ── EventBridge Rule — DMS Full Load Complete ───────────────────────────────
+# ── Lambda Function — Start Glue Full-Load Job ──────────────────────────────
 
-resource "aws_cloudwatch_event_rule" "dms_full_load_complete" {
-  name        = "${var.glue_job_name}-dms-full-load-complete"
+data "archive_file" "lambda_glue_starter" {
+  type        = "zip"
+  source_file = "${path.module}/../app/src/lambdas/start_glue_job.py"
+  output_path = "${path.module}/../.terraform/lambda_glue_starter.zip"
+}
+
+resource "aws_lambda_function" "glue_starter" {
+  filename         = data.archive_file.lambda_glue_starter.output_path
+  source_code_hash = data.archive_file.lambda_glue_starter.output_base64sha256
+  function_name    = "${var.full_load_job_name}-starter"
+  role             = aws_iam_role.lambda_glue_starter.arn
+  handler          = "start_glue_job.lambda_handler"
+  runtime          = "python3.9"
+  timeout          = 30
+
+  environment {
+    variables = {
+      GLUE_JOB_NAME = var.full_load_job_name
+    }
+  }
+
+  tags = merge(local.common_tags, {
+    Name = "${var.full_load_job_name}-starter"
+  })
+}
+
+# ── EventBridge Permission — Invoke Lambda ───────────────────────────────────
+
+resource "aws_lambda_permission" "eventbridge_invoke_glue_starter" {
+  statement_id  = "AllowEventBridgeInvoke"
+  action        = "lambda:InvokeFunction"
+  function_name = aws_lambda_function.glue_starter.function_name
+  principal     = "events.amazonaws.com"
+  source_arn    = aws_cloudwatch_event_rule.full_load_complete.arn
+}
+
+# ── EventBridge Rule — Full Load Complete ───────────────────────────────────
+
+resource "aws_cloudwatch_event_rule" "full_load_complete" {
+  name        = "${var.full_load_job_name}-complete"
   description = "Triggered when DMS full load completes for flight_radar"
 
   event_pattern = jsonencode({
     source      = ["aws.dms"]
     detail-type = ["DMS Full Load Completed"]
-    detail = {
-      "sourceEndpoint" = [{
-        "engine-name" = ["aurora-postgresql"]
-      }]
-    }
   })
 
   tags = merge(local.common_tags, {
-    Name = "${var.glue_job_name}-dms-full-load-complete"
+    Name = "${var.full_load_job_name}-complete"
   })
 }
 
 resource "aws_cloudwatch_event_target" "start_glue_batch" {
-  rule      = aws_cloudwatch_event_rule.dms_full_load_complete.name
+  rule      = aws_cloudwatch_event_rule.full_load_complete.name
   target_id = "StartGlueBatchJob"
-  arn       = aws_glue_job.full_load_batch.arn
-  role_arn  = aws_iam_role.eventbridge_invoke_glue.arn
+  arn       = aws_lambda_function.glue_starter.arn
 }
 
 # ── Glue Trigger — Start Streaming After Full Load ───────────────────────────
 
 resource "aws_glue_trigger" "start_streaming_after_full_load" {
-  name = "${var.glue_job_name}-start-streaming"
+  name = "${var.full_load_job_name}-start-streaming"
   type = "CONDITIONAL"
 
   actions {
-    job_name = aws_glue_job.streaming_minibatch_dms.name
+    job_name = aws_glue_job.streaming_minibatch.name
     arguments = {
       "--mode" = "streaming"
     }
@@ -290,7 +346,7 @@ data "archive_file" "helpers" {
 
 resource "aws_s3_object" "main_py" {
   bucket      = local.buckets.workspace
-  key         = "scripts/glue-streaming-minibatch-dms/main.py"
+  key         = "scripts/glue-flight-radar-stream-cdc/main.py"
   source      = "${path.module}/../app/src/main.py"
   source_hash = filemd5("${path.module}/../app/src/main.py")
   tags        = local.common_tags

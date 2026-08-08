@@ -63,7 +63,7 @@ class EtlControl:
 
         data = [(
             execution_id,
-            "glue-streaming-minibatch-dms",
+            "glue-flight-radar-stream-cdc",
             source_name,
             datetime.fromtimestamp(
                 (now.timestamp() - elapsed_seconds)

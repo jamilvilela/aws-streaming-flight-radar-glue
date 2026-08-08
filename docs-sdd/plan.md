@@ -53,7 +53,7 @@ infra/                     # Complete Terraform module
 ├── outputs.tf            # Module outputs
 ├── data.tf               # Data sources (VPC, IAM Role, Subnets, SG)
 ├── locals.tf             # Computed locals (buckets, spark_conf)
-├── versions.tf           # Provider and S3 backend
+├── versions.tf           # Provider versions
 └── terraform.tfvars      # Default variable values
 scripts/
 ├── setup-env.sh          # AWS environment setup via Terraform (upload via null_resource)

@@ -1,10 +1,9 @@
 #===============================================================================
-# Terraform Variable Values — Glue Streaming Mini-Batch DMS
+# Terraform Variable Values — Glue Streaming Mini-Batch
 #===============================================================================
 
 region = "us-east-1"
-environment = "dev"
-#control_account = "331504768406"
+environment = "prod"
 
 databases = {
   raw      = "db_raw"
@@ -26,7 +25,7 @@ tables = {
 }
 
 
-glue_job_name = "glue-streaming-minibatch-dms"
+glue_job_name = "glue-flight-radar-stream-cdc"
 
 glue_iam_role_name = "role-datalake-analytics"
 
@@ -46,6 +45,6 @@ glue_connections = []
 
 tags = {
   ManagedBy   = "terraform"
-  Environment = "dev"
+  Environment = "prod"
   Project     = "aws-streaming-flight-radar-glue"
 }

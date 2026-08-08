@@ -84,7 +84,7 @@ def _init_spark(spark_configs: dict[str, str] | None = None) -> SparkSession:
     Configs are applied dynamically — no values are hardcoded.
     """
     builder = SparkSession.builder \
-        .appName("glue-streaming-minibatch-dms") \
+        .appName("glue-flight-radar-stream-cdc") \
         .enableHiveSupport()
 
     if spark_configs:

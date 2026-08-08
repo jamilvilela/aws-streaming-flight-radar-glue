@@ -77,7 +77,7 @@ metadata of target tables in ./scripts/*.tf folder
 },
 {
     source: stream,
-    location:  s3://lakehouse-landing-331504768406/dms/flightradar/flight_radar/,
+    location:  s3://lakehouse-landing-${local.account_id}/dms/flightradar/flight_radar/,
     table: flights
     format: parquet
     partition_keys: [

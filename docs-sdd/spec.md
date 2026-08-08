@@ -252,7 +252,7 @@ Both modes share the same `main.py` script, differentiated by the `--mode` param
 
 ### `scripts/setup-env.sh`
 - Checks prerequisites (Terraform, AWS CLI, jq)
-- Initializes Terraform with S3 backend
+- Initializes Terraform (local state)
 - Selects workspace
 - Applies Terraform (artifact upload is done by `aws_s3_object` resources)
 
