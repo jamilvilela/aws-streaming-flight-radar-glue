@@ -69,9 +69,7 @@ check_prerequisites() {
 init_terraform() {
     log_info "Inicializando Terraform em ${TERRAFORM_DIR}..."
     cd "${TERRAFORM_DIR}"
-
     terraform init
-
     log_ok "Terraform init concluído"
 }
 

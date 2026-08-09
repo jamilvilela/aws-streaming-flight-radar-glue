@@ -3,8 +3,8 @@
 #===============================================================================
 
 locals {
-  # Resolve account ID from the control_account variable
-  account_id = var.control_account
+  # Resolve account ID from the current AWS caller identity
+  account_id = data.aws_caller_identity.current.account_id
 
   # S3 bucket names with account ID resolved
   buckets = {

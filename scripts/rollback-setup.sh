@@ -16,7 +16,7 @@
 set -euo pipefail
 
 # ─── Configurações ───────────────────────────────────────────────────────────
-ENV="${1:-dev}"
+ENV="${1:-prod}"
 ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text 2>/dev/null || echo "000000000000")
 REGION="${AWS_REGION:-us-east-1}"
 WORKSPACE_BUCKET="lakehouse-workspace-${ACCOUNT_ID}"

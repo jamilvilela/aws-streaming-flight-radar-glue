@@ -2,6 +2,10 @@
 # Data Sources — Existing AWS resources used by the Glue job
 #===============================================================================
 
+# ── AWS Account ───────────────────────────────────────────────────────────────
+
+data "aws_caller_identity" "current" {}
+
 # ── IAM Role ──────────────────────────────────────────────────────────────────
 
 data "aws_iam_role" "datalake_analytics" {

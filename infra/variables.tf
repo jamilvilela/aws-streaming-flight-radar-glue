@@ -14,11 +14,6 @@ variable "environment" {
   default     = "dev"
 }
 
-variable "control_account" {
-  description = "AWS account ID for the data lake"
-  type        = string
-}
-
 variable "databases" {
   description = "Glue Data Catalog database names"
   type = object({
@@ -59,17 +54,6 @@ variable "tables" {
     etl_control            = "etl_control"
     data_quality           = "data_quality_metrics"
   }
-}
-
-variable "buckets" {
-  description = "S3 bucket names (without account ID suffix)"
-  type = object({
-    landing   = string
-    raw       = string
-    trusted   = string
-    business  = string
-    workspace = string
-  })
 }
 
 variable "glue_job_name" {
