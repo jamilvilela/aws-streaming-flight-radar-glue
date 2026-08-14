@@ -47,7 +47,8 @@ class Writer:
         (via ``cod_unico_expr`` or by concatenating PK columns with "_"),
         then performs a Delta MERGE using the table name resolved through
         the **Glue Catalog** (``DeltaTable.forName``):
-          - ``WHEN NOT MATCHED THEN INSERT`` — new records
+          - ``WHEN NOT MATCHED AND Op <> 'D' THEN INSERT`` — new records
+          - ``WHEN MATCHED AND Op = 'D' THEN DELETE`` — DMS deletes
           - ``WHEN MATCHED THEN UPDATE SET *`` — existing records updated
 
         The target table (``{database}.{table}``) must already exist in
@@ -72,13 +73,33 @@ class Writer:
         try:
             delta_table = DeltaTable.forName(self._spark, table_name)
 
+            # DMS injects CDC metadata columns (Op, dms_timestamp, ...) into
+            # every file. Project only the columns that exist in the target
+            # Delta table, keeping the CDC op column (if present) available
+            # so the merge can implement DMS delete semantics (Op = 'D').
+            op_col = source.cdc_config.op_column if (source and source.cdc_config) else "Op"
+            target_cols = set(delta_table.toDF().columns)
+            write_cols = [c for c in df_to_write.columns if c in target_cols]
+            merge_cols = write_cols
+            if op_col in df_to_write.columns and op_col not in merge_cols:
+                merge_cols = merge_cols + [op_col]
+            df_to_write = df_to_write.select(*merge_cols)
+
             merge_condition = "source.cod_unico = target.cod_unico"
 
-            (delta_table.alias("target")
-             .merge(df_to_write.alias("source"), merge_condition)
-             .whenNotMatchedInsertAll()
-             .whenMatchedUpdateAll()
-             .execute())
+            builder = delta_table.alias("target").merge(df_to_write.alias("source"), merge_condition)
+
+            if op_col in df_to_write.columns:
+                builder = (builder
+                           .whenNotMatchedInsert(
+                               condition=f"source.{op_col} <> 'D'",
+                               values={c: f"source.{c}" for c in write_cols})
+                           .whenMatchedDelete(condition=f"source.{op_col} = 'D'")
+                           .whenMatchedUpdateAll())
+            else:
+                builder = builder.whenNotMatchedInsertAll().whenMatchedUpdateAll()
+
+            builder.execute()
 
             logger.info("Delta MERGE completed for %s (via Glue Catalog)", table_name)
 

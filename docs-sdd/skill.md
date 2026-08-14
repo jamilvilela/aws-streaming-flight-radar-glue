@@ -24,46 +24,42 @@ Implement an **AWS Glue 5.1 (PySpark 4.0)** job to process **CDC (Change Data Ca
 
 ## Job Architecture
 
-```
-S3 Landing (DMS Parquet — tbl_opensky_flights/)
-        │
-        ▼
-   ┌──────────┐
-   │  Reader   │ (Spark readStream — streaming-only, no bookmarks)
-   └─────┬────┘
-         │ Raw DataFrame
-         ▼
-   ┌───────────┐
-   │ DataQuality│ (cleansing, schema validation, rejects — 4 stages)
-   └─────┬─────┘
-         │ Validated DataFrame
-         ▼
-   ┌──────────┐
-   │  Writer   │ (Delta MERGE by composite PK + partitions)
-   └─────┬────┘
-         │
-         ▼
-   S3 Raw (Delta table — tbl_opensky_flights)
+### Diagrama de Arquitetura (Mermaid)
 
-   ┌──────────────┐
-   │  EtlControl   │  ← execution log (separate class)
-   └──────────────┘
-   ┌──────────────────────┐
-   │  QualityMetrics      │  ← quality metrics (separate class)
-   └──────────────────────┘
+```mermaid
+flowchart TD
+    LAND["S3 Landing<br/>(DMS Parquet — tbl_opensky_flights)"]
+    READER["Reader<br/>(Spark readStream — sem bookmarks)"]
+    DQ["DataQuality<br/>(4 estágios: cast, nulls, enums, timestamps)"]
+    WRITER["Writer<br/>(Delta MERGE por PK + partições)"]
+    RAW["S3 Raw<br/>(Delta table — tbl_opensky_flights)"]
+    ETL["EtlControl<br/>(execution log)"]
+    QM["QualityMetrics<br/>(quality metrics)"]
+
+    LAND --> READER
+    READER --> DQ
+    DQ --> WRITER
+    WRITER --> RAW
+    DQ -.-> ETL
+    DQ -.-> QM
 ```
 
 ## Infrastructure (Terraform)
 
-The Terraform module in `infra/` manages all required AWS resources:
+The Terraform module in `infra/` manages all required AWS resources, organized by service:
 
-| Resource | Description |
-|---------|-----------|
-| `aws_kms_key.glue` | KMS key for SSE-KMS/CSE-KMS encryption |
-| `aws_glue_security_configuration.glue` | Security config (CloudWatch, bookmarks, S3) |
-| `aws_glue_connection.vpc` | VPC connection (private subnet, default security group) |
-| `aws_glue_job.streaming_minibatch_dms` | Glue job (Glue 5.1, Spark 4.0, Python 3.10) |
-| `data.archive_file.helpers` + `aws_s3_object.*` | Creates helpers.zip and declarative upload of scripts + configs to S3 |
+| Resource | File | Description |
+|---------|------|-----------|
+| `aws_kms_key.glue` | `kms.tf` | KMS key for SSE-KMS/CSE-KMS encryption |
+| `aws_glue_security_configuration.glue` | `glue.tf` | Security config (CloudWatch, bookmarks, S3) |
+| `aws_glue_connection.vpc` | `glue.tf` | VPC connection (private subnet, default security group) |
+| `aws_glue_job.full_load_batch` | `glue.tf` | Full-load batch Glue job (Glue 5.1, Spark 4.0, Python 3.10) |
+| `aws_glue_job.streaming_minibatch` | `glue.tf` | Streaming CDC Glue job (Glue 5.1, Spark 4.0, Python 3.10) |
+| `aws_glue_trigger.start_streaming_after_full_load` | `glue.tf` | CONDITIONAL trigger — starts streaming after batch |
+| `aws_iam_role.lambda_glue_starter` + policy | `iam.tf` | IAM role/policy for Lambda → Glue |
+| `aws_lambda_function.glue_starter` + permission | `lambda.tf` | Lambda that starts the full-load job |
+| `aws_cloudwatch_event_rule.full_load_complete` + target | `cloudwatch.tf` | EventBridge rule/target (DMS full load complete) |
+| `data.archive_file.helpers` + `aws_s3_object.*` | `s3.tf` | Creates helpers.zip and declarative upload of scripts + configs to S3 |
 
 > ⚠️ Glue Catalog databases and tables are not managed by this module — they already exist in the Data Lake.
 

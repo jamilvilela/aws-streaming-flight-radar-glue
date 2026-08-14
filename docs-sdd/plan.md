@@ -48,7 +48,13 @@ app/
         ├── test_glue_catalog.py
         └── test_pipeline_e2e.py
 infra/                     # Complete Terraform module
-├── main.tf               # Resources: Glue job, KMS, Security Config, Connection, Upload
+├── main.tf               # Module overview (no resources)
+├── kms.tf                # KMS key + alias (encryption)
+├── glue.tf               # Glue security config, VPC connection, jobs, trigger
+├── iam.tf                # IAM role + policy (Lambda → Glue)
+├── lambda.tf             # Lambda function + permission (starts full-load job)
+├── cloudwatch.tf         # EventBridge rule + target (DMS full load complete)
+├── s3.tf                 # Artifact upload (main.py, helpers.zip, config.json)
 ├── variables.tf          # Input variables
 ├── outputs.tf            # Module outputs
 ├── data.tf               # Data sources (VPC, IAM Role, Subnets, SG)
@@ -206,22 +212,43 @@ docs-sdd/
 
 ## Infrastructure as Code (Terraform)
 
-### Resources (`infra/main.tf`)
+### Resources (organizados por serviço em `infra/`)
 
-| Resource | Type | Description |
-|---------|------|-----------|
-| `aws_kms_key.glue` | KMS Key | SSE-KMS/CSE-KMS, 30-day rotation |
-| `aws_kms_alias.glue` | KMS Alias | `alias/glue-streaming-minibatch-dms` |
-| `aws_glue_security_configuration.glue` | Security Config | CloudWatch SSE-KMS, bookmarks CSE-KMS, S3 SSE-KMS |
-| `aws_glue_connection.vpc` | Glue Connection | NETWORK, private subnet, default SG |
-| `aws_glue_job.full_load_batch` | Glue Job (batch) | Glue 5.1, Python 3.10, G.1X, 4 workers, `--mode=batch` — processes N tables sequentially |
-| `aws_glue_job.streaming_minibatch_dms` | Glue Job (streaming) | Glue 5.1, Python 3.10, G.0.25X, 1 worker, `--mode=streaming` — N concurrent queries |
-| `aws_iam_role.eventbridge_invoke_glue` | IAM Role | Role for EventBridge to invoke Glue |
-| `aws_iam_role_policy.eventbridge_invoke_glue` | IAM Policy | Permission `glue:StartJobRun` on full_load_batch job |
-| `aws_cloudwatch_event_rule.dms_full_load_complete` | EventBridge Rule | DMS full load completed event (source=aurora-postgresql) |
-| `aws_cloudwatch_event_target.start_glue_batch` | EventBridge Target | Triggers `full_load_batch` via StartJobRun |
-| `aws_glue_trigger.start_streaming_after_full_load` | Glue Trigger | CONDITIONAL — starts streaming CDC after batch succeed |
-| `data.archive_file.helpers` + `aws_s3_object.*` | Archive + S3 Objects | Declarative — helpers.zip + main.py + JSON configs |
+| Resource | File | Type | Description |
+|---------|------|------|-----------|
+| `aws_kms_key.glue` | `kms.tf` | KMS Key | SSE-KMS/CSE-KMS, 30-day rotation |
+| `aws_kms_alias.glue` | `kms.tf` | KMS Alias | `alias/glue-streaming-minibatch-dms` |
+| `aws_glue_security_configuration.glue` | `glue.tf` | Security Config | CloudWatch SSE-KMS, bookmarks CSE-KMS, S3 SSE-KMS |
+| `aws_glue_connection.vpc` | `glue.tf` | Glue Connection | NETWORK, private subnet, default SG |
+| `aws_glue_job.full_load_batch` | `glue.tf` | Glue Job (batch) | Glue 5.1, Python 3.10, G.1X, 4 workers, `--mode=batch` — processes N tables sequentially |
+| `aws_glue_job.streaming_minibatch` | `glue.tf` | Glue Job (streaming) | Glue 5.1, Python 3.10, G.0.25X, 1 worker, `--mode=streaming` — N concurrent queries |
+| `aws_glue_trigger.start_streaming_after_full_load` | `glue.tf` | Glue Trigger | CONDITIONAL — starts streaming CDC after batch succeed |
+| `aws_iam_role.lambda_glue_starter` | `iam.tf` | IAM Role | Role for Lambda to start the full-load Glue job |
+| `aws_iam_role_policy.lambda_glue_starter` | `iam.tf` | IAM Policy | Permission `glue:StartJobRun` on full_load_batch job |
+| `aws_lambda_function.glue_starter` | `lambda.tf` | Lambda Function | Starts the full-load Glue job (EventBridge target) |
+| `aws_lambda_permission.eventbridge_invoke_glue_starter` | `lambda.tf` | Lambda Permission | Allows EventBridge to invoke the Lambda |
+| `aws_cloudwatch_event_rule.full_load_complete` | `cloudwatch.tf` | EventBridge Rule | DMS full load completed event (source=aws.dms) |
+| `aws_cloudwatch_event_target.start_glue_batch` | `cloudwatch.tf` | EventBridge Target | Triggers the Lambda via InvokeFunction |
+| `data.archive_file.helpers` + `aws_s3_object.*` | `s3.tf` | Archive + S3 Objects | Declarative — helpers.zip + main.py + JSON configs |
+
+### Diagrama de Infraestrutura (Mermaid)
+
+```mermaid
+flowchart LR
+    KMS["aws_kms_key.glue"] --> SC["aws_glue_security_configuration.glue"]
+    KMS --> ALIAS["aws_kms_alias.glue"]
+    SC --> BATCH["aws_glue_job.full_load_batch"]
+    SC --> STREAM["aws_glue_job.streaming_minibatch"]
+    CONN["aws_glue_connection.vpc"] --> BATCH
+    CONN --> STREAM
+    BATCH --> TRIG["aws_glue_trigger.start_streaming_after_full_load"]
+    TRIG --> STREAM
+    RULE["aws_cloudwatch_event_rule.full_load_complete"] --> TARGET["aws_cloudwatch_event_target.start_glue_batch"]
+    TARGET --> LAMBDA["aws_lambda_function.glue_starter"]
+    LAMBDA --> BATCH
+    ROLE["aws_iam_role.lambda_glue_starter"] --> LAMBDA
+    ARCH["data.archive_file.helpers"] --> OBJ["aws_s3_object.*"]
+```
 
 ### Spark Configs (--conf)
 

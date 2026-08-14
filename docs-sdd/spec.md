@@ -34,95 +34,36 @@ Both modes share the same `main.py` script, differentiated by the `--mode` param
 
 ## 2. Architecture
 
-```
-┌──────────────────────────────────────────────────────────────────────────┐
-│                    DMS Task (full-load-and-cdc)                         │
-│  Aurora PostgreSQL Endpoint → S3 (Parquet) — 5 tables                   │
-└─────────────────────────┬────────────────────────────────────────────────┘
-                          │ CdcPath separates CDC from Full Load (per table)
-                          ▼
-┌──────────────────────────────────────────────────────────────────────────┐
-│              S3 Landing — Per-Table Prefixes + CDC                      │
-│  .../aircraft/ + .../aircraft_cdc/                                      │
-│  .../airports/ + .../airports_cdc/                                      │
-│  .../airlines/ + .../airlines_cdc/                                      │
-│  .../flights/ + .../flights_cdc/                                        │
-│  .../aircraft_positions/ + .../aircraft_positions_cdc/                  │
-└──────┬───────────────────────────────────────────────────────────────────┘
-       │ EventBridge: DMS Full Load Complete
-       ▼
-┌──────────────────────────────────────────────────────────────────────────┐
-│  Glue Batch Job — G.1X, 4 workers, --mode=batch                        │
-│  Processes tables SEQUENTIALLY (order 1..5):                            │
-│    1. aircraft       → Delta Catalog.aircraft                           │
-│    2. airports       → Delta Catalog.airports                           │
-│    3. airlines       → Delta Catalog.airlines                           │
-│    4. flights        → Delta Catalog.flights                            │
-│    5. aircraft_positions → Delta Catalog.aircraft_positions              │
-│  Each table reads from its corresponding full load prefix.              │
-└────────────────────────┬─────────────────────────────────────────────────┘
-                         │ SUCCEEDED
-                         ▼
-┌──────────────────────────────────────────────────────────────────────────┐
-│  Glue CONDITIONAL Trigger (after full load succeeds)                    │
-└────────┬─────────────────────────────────────────────────────────────────┘
-         ▼
-┌──────────────────────────────────────────────────────────────────────────┐
-│  Glue Streaming Job — G.0.25X, 1 worker, --mode=streaming              │
-│  Starts N CONCURRENT queries (one per table):                           │
-│    ├── aircraft       → readStream (CDC) → forEachBatch                 │
-│    ├── airports       → readStream (CDC) → forEachBatch                 │
-│    ├── airlines       → readStream (CDC) → forEachBatch                 │
-│    ├── flights        → readStream (CDC) → forEachBatch                 │
-│    └── aircraft_positions → readStream (CDC) → forEachBatch             │
-│  Each query has trigger(processingTime="5 minutes"), own checkpoint.     │
-└────────────────────────┬─────────────────────────────────────────────────┘
-                         │ Raw DataFrame
-                         ▼
-┌──────────────────────────────────────────────────────────────────────────┐
-│  Reader (app/src/dependencies/reader.py)                                │
-│  • Batch mode: spark.read.format("parquet").load()                      │
-│  • Streaming mode: spark.readStream.format("parquet")                   │
-│  • includeExistingFiles=false (streaming)                               │
-└────────────────────────┬─────────────────────────────────────────────────┘
-                         │ DataFrame
-                         ▼
-┌──────────────────────────────────────────────────────────────────────────┐
-│  DataQuality (app/src/dependencies/data_quality.py)                     │
-│  4-stage pipeline:                                                        │
-│  1. _cast_types — convert types according to target schema                │
-│  2. _check_nulls — filter nulls in NOT NULL fields                        │
-│  3. _check_enums — validate enum_columns values                           │
-│  4. _validate_timestamps — pass-through                                   │
-│  **No dedup** — uniqueness guaranteed by Delta MERGE on write             │
-│  Returns: (valid_df, rejects_df) with rejection metadata                  │
-└──────────────────────┬──────────────────┬────────────────────────────────┘
-                       │ valid_df         │ rejects_df
-                       ▼                  ▼
-┌──────────────────────────────┐   ┌──────────────────────────┐
-│  Writer (app/src/dependencies/   │   │  Writer.write_rejects()  │
-│         writer.py)           │   │  • Saves to Rejected/    │
-│  • **Delta Lake**            │   │  • With metadata         │
-│  • MERGE by composite PK     │   └──────────────────────────┘
-│  • Partition by event_date   │
-│  • Generates cod_unico       │
-└──────────┬───────────────────┘
-           │
-           ▼
-┌──────────────────────────────────────────────────────────────────────────┐
-│  S3 Raw (tbl_opensky_flights)                                           │
-│  s3://lakehouse-raw-{account}/tables/opensky/flights/                   │
-│  Partition: event_date                                                    │
-└──────────────────────────────────────────────────────────────────────────┘
+### Diagrama de Arquitetura (Mermaid)
 
-┌──────────────────────────────┐   ┌──────────────────────────────────┐
-│  EtlControl                  │   │  QualityMetrics                  │
-│  (app/src/dependencies/     │   │  (app/src/dependencies/         │
-│    etl_control.py)           │   │    quality_metrics.py)           │
-│  • etl_control table         │   │  • data_quality_metrics          │
-│  • execution_id,             │   │  • rows_read/written/            │
-│    records, status           │   │    rejected, status              │
-└──────────────────────────────┘   └──────────────────────────────────┘
+```mermaid
+flowchart TD
+    DMS["DMS Task<br/>(full-load-and-cdc)"]
+    LAND["S3 Landing<br/>(prefixos por tabela + CDC)"]
+    EVB["EventBridge<br/>(DMS Full Load Complete)"]
+    BATCH["Glue Batch Job<br/>--mode=batch · sequencial"]
+    TRIG["Glue Trigger<br/>(CONDITIONAL)"]
+    STREAM["Glue Streaming Job<br/>--mode=streaming · concorrente"]
+    READER["Reader"]
+    DQ["DataQuality<br/>(4 estágios)"]
+    WRITER["Writer<br/>(Delta MERGE)"]
+    RAW["S3 Raw<br/>tbl_opensky_flights"]
+    ETL["EtlControl"]
+    QM["QualityMetrics"]
+
+    DMS --> LAND
+    LAND --> EVB
+    EVB --> BATCH
+    BATCH --> TRIG
+    TRIG --> STREAM
+    LAND --> READER
+    BATCH --> READER
+    STREAM --> READER
+    READER --> DQ
+    DQ --> WRITER
+    WRITER --> RAW
+    DQ -.-> ETL
+    DQ -.-> QM
 ```
 
 ## 3. Components
@@ -204,24 +145,27 @@ Both modes share the same `main.py` script, differentiated by the `--mode` param
 
 ## 4. Infrastructure (Terraform)
 
-### Resources (`infra/main.tf`)
-| Name | Type | Description |
-|------|------|-----------|
-| `aws_kms_key.glue` | KMS Key | SSE-KMS/CSE-KMS encryption |
-| `aws_kms_alias.glue` | KMS Alias | `alias/glue-streaming-minibatch-dms` |
-| `aws_glue_security_configuration.glue` | Security Config | CloudWatch SSE-KMS, bookmarks CSE-KMS, S3 SSE-KMS |
-| `aws_glue_connection.vpc` | Glue Connection | NETWORK, private subnet, default SG |
-| `aws_glue_job.full_load_batch` | Glue Job (batch) | Glue 5.1, Python 3.10, G.1X, 4 workers, `--mode=batch` — processes N tables sequentially |
-| `aws_glue_job.streaming_minibatch_dms` | Glue Job (streaming) | Glue 5.1, Python 3.10, G.0.25X, 1 worker, `--mode=streaming` — N concurrent queries |
-| `aws_iam_role.eventbridge_invoke_glue` | IAM Role | Role for EventBridge to invoke Glue |
-| `aws_iam_role_policy.eventbridge_invoke_glue` | IAM Policy | Permission `glue:StartJobRun` on full_load_batch job |
-| `aws_cloudwatch_event_rule.dms_full_load_complete` | EventBridge Rule | DMS full load completed event (source=aurora-postgresql) |
-| `aws_cloudwatch_event_target.start_glue_batch` | EventBridge Target | Triggers `full_load_batch` via StartJobRun |
-| `aws_glue_trigger.start_streaming_after_full_load` | Glue Trigger | CONDITIONAL — starts streaming CDC after batch succeed |
-| `data.archive_file.helpers` | Archive Data | Creates helpers.zip from `app/src/dependencies/` |
-| `aws_s3_object.main_py` | S3 Object | Uploads `main.py` to scripts path |
-| `aws_s3_object.helpers_zip` | S3 Object | Uploads `helpers.zip` to dependencies path |
-| `aws_s3_object.config_json` | S3 Object | Uploads `config.json` (with `{account_id}` resolved) |
+### Resources (organizados por serviço em `infra/`)
+
+| Name | File | Type | Description |
+|------|------|------|-----------|
+| `aws_kms_key.glue` | `kms.tf` | KMS Key | SSE-KMS/CSE-KMS encryption |
+| `aws_kms_alias.glue` | `kms.tf` | KMS Alias | `alias/glue-streaming-minibatch-dms` |
+| `aws_glue_security_configuration.glue` | `glue.tf` | Security Config | CloudWatch SSE-KMS, bookmarks CSE-KMS, S3 SSE-KMS |
+| `aws_glue_connection.vpc` | `glue.tf` | Glue Connection | NETWORK, private subnet, default SG |
+| `aws_glue_job.full_load_batch` | `glue.tf` | Glue Job (batch) | Glue 5.1, Python 3.10, G.1X, 4 workers, `--mode=batch` — processes N tables sequentially |
+| `aws_glue_job.streaming_minibatch` | `glue.tf` | Glue Job (streaming) | Glue 5.1, Python 3.10, G.0.25X, 1 worker, `--mode=streaming` — N concurrent queries |
+| `aws_glue_trigger.start_streaming_after_full_load` | `glue.tf` | Glue Trigger | CONDITIONAL — starts streaming CDC after batch succeed |
+| `aws_iam_role.lambda_glue_starter` | `iam.tf` | IAM Role | Role for Lambda to start the full-load Glue job |
+| `aws_iam_role_policy.lambda_glue_starter` | `iam.tf` | IAM Policy | Permission `glue:StartJobRun` on full_load_batch job |
+| `aws_lambda_function.glue_starter` | `lambda.tf` | Lambda Function | Starts the full-load Glue job (EventBridge target) |
+| `aws_lambda_permission.eventbridge_invoke_glue_starter` | `lambda.tf` | Lambda Permission | Allows EventBridge to invoke the Lambda |
+| `aws_cloudwatch_event_rule.full_load_complete` | `cloudwatch.tf` | EventBridge Rule | DMS full load completed event (source=aws.dms) |
+| `aws_cloudwatch_event_target.start_glue_batch` | `cloudwatch.tf` | EventBridge Target | Triggers the Lambda via InvokeFunction |
+| `data.archive_file.helpers` | `s3.tf` | Archive Data | Creates helpers.zip from `app/src/dependencies/` |
+| `aws_s3_object.main_py` | `s3.tf` | S3 Object | Uploads `main.py` to scripts path |
+| `aws_s3_object.helpers_zip` | `s3.tf` | S3 Object | Uploads `helpers.zip` to dependencies path |
+| `aws_s3_object.config_json` | `s3.tf` | S3 Object | Uploads `config.json` (with `{account_id}` resolved) |
 
 ### Dynamic Spark Configs (`locals.tf → spark_conf`)
 - `spark.sql.adaptive.enabled` = true

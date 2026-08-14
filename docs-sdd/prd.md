@@ -105,6 +105,30 @@ Data replicated by DMS in the landing bucket needs to be processed before it's r
 - `scripts/setup-env.sh`: provision AWS environment via Terraform (artifact upload done by Terraform)
 - `scripts/rollback-setup.sh`: destroy Terraform resources (no S3 cleanup)
 
+### Fluxo do Pipeline (Mermaid)
+
+```mermaid
+flowchart TD
+    DMS["AWS DMS Serverless"]
+    LAND["S3 Landing"]
+    READER["Reader (readStream)"]
+    DQ["DataQuality (4 estágios)"]
+    REJ["Rejected/ (Parquet)"]
+    WRITER["Writer (Delta MERGE)"]
+    RAW["S3 Raw (tbl_opensky_flights)"]
+    ETL["EtlControl"]
+    QM["QualityMetrics"]
+
+    DMS --> LAND
+    LAND --> READER
+    READER --> DQ
+    DQ --> REJ
+    DQ --> WRITER
+    WRITER --> RAW
+    DQ -.-> ETL
+    DQ -.-> QM
+```
+
 ## 4. Non-Functional Requirements
 
 | ID | Requirement | Description |

@@ -73,8 +73,13 @@ output "eventbridge_rule_name" {
   value       = aws_cloudwatch_event_rule.full_load_complete.name
 }
 
+output "glue_workflow_name" {
+  description = "Glue workflow name orchestrating full load -> streaming"
+  value       = aws_glue_workflow.dms_full_load.name
+}
+
 output "glue_trigger_name" {
-  description = "Glue trigger name for starting streaming after full load"
+  description = "Glue conditional trigger name for starting streaming after full load"
   value       = aws_glue_trigger.start_streaming_after_full_load.name
 }
 

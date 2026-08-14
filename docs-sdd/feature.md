@@ -94,10 +94,16 @@ The Glue Job processes these files in **mini-batches** (60s), ensuring:
 
 | Resource | `infra/` File | Description |
 |---------|-----------------|-----------|
-| KMS Key | `main.tf` | KMS key for SSE-KMS/CSE-KMS encryption |
-| Security Config | `main.tf` | Encryption: CloudWatch, job bookmarks, S3 |
-| Glue Connection | `main.tf` | VPC connection (private subnet + security group) |
-| Glue Job | `main.tf` | Glue 5.1 / Spark 4.0 / Python 3.10 job |
+| KMS Key | `kms.tf` | KMS key for SSE-KMS/CSE-KMS encryption |
+| Security Config | `glue.tf` | Encryption: CloudWatch, job bookmarks, S3 |
+| Glue Connection | `glue.tf` | VPC connection (private subnet + security group) |
+| Glue Job (batch) | `glue.tf` | Full-load batch job — Glue 5.1 / Spark 4.0 / Python 3.10 |
+| Glue Job (streaming) | `glue.tf` | Streaming CDC job — Glue 5.1 / Spark 4.0 / Python 3.10 |
+| Glue Trigger | `glue.tf` | CONDITIONAL — starts streaming after full load |
+| IAM Role + Policy | `iam.tf` | Lambda → Glue (`glue:StartJobRun`) |
+| Lambda Function | `lambda.tf` | Starts the full-load Glue job (EventBridge target) |
+| EventBridge Rule + Target | `cloudwatch.tf` | DMS full load complete → Lambda |
+| Archive + S3 Objects | `s3.tf` | Upload of scripts, helpers.zip and config.json |
 
 > ⚠️ Glue Catalog databases and tables are not created by Terraform — they already exist in the Data Lake. Names are only for code reference.
 
@@ -108,16 +114,27 @@ Spark configs are defined in the Terraform module's `locals.tf` as a `spark_prop
 Delta Lake specific configs are included: `spark.databricks.delta.properties.defaults.autoOptimize.optimizeWrite` and `spark.databricks.delta.properties.defaults.autoOptimize.autoCompact`.
 
 ### 4.3. Pipeline
-```
-main.py
-  └── Processor.run("flights")
-        ├── 1. Config.from_s3(path) → SourceConfig
-        ├── 2. Reader.stream(config) → raw DataFrame
-        ├── 3. DataQuality.validate(df, config) → (valid_df, rejects_df)
-        ├── 4. Writer.write_rejects(rejects_df, config)
-        ├── 5. Writer.write(valid_df, config)  → Delta MERGE by PK
-        ├── 6. etl_control.register_execution(...)
-        └── 7. data_quality_metrics.save_metrics(...)
+
+```mermaid
+flowchart TD
+    MAIN["main.py"]
+    PROC["Processor.run('flights')"]
+    CONFIG["1. Config.from_s3(path) → SourceConfig"]
+    READER["2. Reader.stream(config) → raw DataFrame"]
+    DQ["3. DataQuality.validate(df, config) → (valid_df, rejects_df)"]
+    REJ["4. Writer.write_rejects(rejects_df, config)"]
+    WRITE["5. Writer.write(valid_df, config) → Delta MERGE by PK"]
+    ETL["6. etl_control.register_execution(...)"]
+    QM["7. data_quality_metrics.save_metrics(...)"]
+
+    MAIN --> PROC
+    PROC --> CONFIG
+    CONFIG --> READER
+    READER --> DQ
+    DQ --> REJ
+    DQ --> WRITE
+    WRITE --> ETL
+    ETL --> QM
 ```
 
 ## 5. Quality Rules (DataQuality)

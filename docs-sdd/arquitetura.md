@@ -119,9 +119,144 @@ resource "aws_s3_bucket_lifecycle_configuration" "lc" {
 }
 ```
 
-**Diagrama ASCII**
+**Diagrama de Arquitetura (Mermaid)**
+
+```mermaid
+flowchart LR
+    subgraph SRC["Fontes de Dados"]
+        RDBMS["RDBMS (CDC)"]
+        LEGACY["Arquivos Legados"]
+        SAAS["SaaS APIs"]
+        APPS["Apps / Sites"]
+    end
+
+    subgraph CON["Conectores"]
+        DMS["AWS DMS"]
+        SFTP["Transfer Family (SFTP)"]
+        APPFLOW["AppFlow"]
+        GW["API Gateway + Lambda"]
+        EVB["EventBridge"]
+    end
+
+    subgraph ING["Ingestão"]
+        KIN["Kinesis / Firehose"]
+        MSK["MSK (Kafka)"]
+        FLINK["Flink (KDA)"]
+    end
+
+    subgraph LAKE["Lakehouse S3 (Medallion)"]
+        LAND["Landing"]
+        BRONZE["Bronze"]
+        SILVER["Silver"]
+        GOLD["Gold"]
+        WS["Workspace"]
+    end
+
+    subgraph PROC["Processamento"]
+        GLUE["Glue (batch/streaming)"]
+        EMR["EMR (Spark)"]
+        DBX["Databricks"]
+    end
+
+    subgraph GOV["Governança"]
+        CAT["Glue Data Catalog"]
+        LF["Lake Formation"]
+        DZ["DataZone"]
+    end
+
+    subgraph CONSUME["Consumo"]
+        RS["Redshift"]
+        ATH["Athena"]
+        SM["SageMaker"]
+        API["APIs"]
+    end
+
+    RDBMS --> DMS
+    LEGACY --> SFTP
+    SAAS --> APPFLOW
+    APPS --> GW
+    DMS --> MSK
+    SFTP --> KIN
+    APPFLOW --> KIN
+    GW --> KIN
+    EVB --> GLUE
+    KIN --> LAND
+    MSK --> LAND
+    LAND --> GLUE
+    LAND --> EMR
+    LAND --> DBX
+    GLUE --> BRONZE
+    EMR --> BRONZE
+    DBX --> BRONZE
+    BRONZE --> SILVER
+    SILVER --> GOLD
+    GOLD --> WS
+    CAT -.-> GLUE
+    LF -.-> SILVER
+    GOLD --> RS
+    GOLD --> ATH
+    GOLD --> SM
+    GOLD --> API
 ```
-[SOURCES] -> [CONNECTORS] -> [Kinesis/MSK] -> [S3 Landing] -> [Bronze] -> [Silver] -> [Gold] -> [Redshift/Athena/SageMaker]
+
+**Fluxo da Solução (Mermaid)**
+
+```mermaid
+flowchart TD
+    AURO["Aurora PostgreSQL<br/>(schema flight_radar)"]
+    DMS["AWS DMS Serverless<br/>(full-load-and-cdc)"]
+    LAND["S3 Landing<br/>lakehouse-landing-{account_id}<br/>dms/flightradar/flight_radar/"]
+    EVB["EventBridge<br/>DMS Full Load Completed"]
+    LAMBDA["Lambda glue_starter<br/>start_glue_job.py"]
+    BATCH["Glue Job Batch<br/>glue-flight-radar-full-load<br/>--mode=batch"]
+    TRIG["Glue Trigger<br/>CONDITIONAL"]
+    STREAM["Glue Job Streaming<br/>glue-flight-radar-stream-cdc<br/>--mode=streaming"]
+    READER["Reader"]
+    DQ["DataQuality<br/>(4 estágios)"]
+    WRITER["Writer<br/>(Delta MERGE por PK)"]
+    REJ["Rejected/ (Parquet)"]
+    RAW["S3 Raw<br/>tbl_opensky_flights (Delta)"]
+    ETL["EtlControl"]
+    QM["QualityMetrics"]
+
+    AURO --> DMS
+    DMS --> LAND
+    LAND --> EVB
+    EVB --> LAMBDA
+    LAMBDA --> BATCH
+    BATCH --> TRIG
+    TRIG --> STREAM
+    LAND --> READER
+    BATCH --> READER
+    STREAM --> READER
+    READER --> DQ
+    DQ --> WRITER
+    DQ --> REJ
+    WRITER --> RAW
+    DQ -.-> ETL
+    DQ -.-> QM
+```
+
+**Fluxo de Eventos (Mermaid)**
+
+```mermaid
+sequenceDiagram
+    participant DMS as AWS DMS
+    participant LAND as S3 Landing
+    participant EB as EventBridge
+    participant LAMBDA as Lambda glue_starter
+    participant BATCH as Glue Batch Job
+    participant TRIG as Glue Trigger
+    participant STREAM as Glue Streaming Job
+
+    DMS->>LAND: Full load + CDC (Parquet, 5 tabelas)
+    DMS->>EB: DMS Full Load Completed
+    EB->>LAMBDA: InvokeFunction
+    LAMBDA->>BATCH: start_job_run(--mode=batch)
+    Note over BATCH: Processa tabelas SEQUENCIALMENTE (order 1..5)
+    BATCH-->>TRIG: SUCCEEDED
+    TRIG->>STREAM: start_job_run(--mode=streaming)
+    Note over STREAM: N queries CONCORRENTES (uma por tabela)
 ```
 
 ---  
