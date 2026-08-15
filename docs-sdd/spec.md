@@ -68,7 +68,7 @@ flowchart TD
 
 ## 3. Components
 
-### 3.1. Config — `app/src/dependencies/config_models.py` (+ `config/` JSON)
+### 3.1. Config — `app/aws-glue/src/dependencies/config_models.py` (+ `config/` JSON)
 
 **Dataclasses:**
 - `SchemaField(name, type, comment, nullable)`
@@ -81,15 +81,15 @@ flowchart TD
 **Configuration files:**
 | File | Purpose | Content |
 |---------|-----------|----------|
-| `app/src/dependencies/config/config.json` | Unified configuration | List of tables with embedded source + target |
+| `app/aws-glue/src/dependencies/config/config.json` | Unified configuration | List of tables with embedded source + target |
 
-### 3.2. Reader — `app/src/dependencies/reader.py`
+### 3.2. Reader — `app/aws-glue/src/dependencies/reader.py`
 - Method `read(source, mode="streaming")` — dispatcher for batch or streaming mode
 - **Streaming mode:** `spark.readStream.format("parquet")` with `maxFilesPerTrigger=1`, `cleanSource=archive`, `includeExistingFiles=true`
 - **Batch mode:** `spark.read.format("parquet").load(source.source_location)` — reads all existing files
 - S3 checkpoint (`source.checkpoint_location`) — streaming only
 
-### 3.3. AwsHelper — `app/src/dependencies/aws_helper.py` (new)
+### 3.3. AwsHelper — `app/aws-glue/src/dependencies/aws_helper.py` (new)
 - Reusable boto3 utility class, decoupled from the pipeline
 - Lazy clients: `s3`, `athena`, `glue`, `sts`, `cloudwatch`
 - `get_account_id()` → returns account ID via STS
@@ -97,14 +97,14 @@ flowchart TD
 - `move_s3_objects(source_bucket, source_prefix, dest_bucket, dest_prefix, pattern, delete_source)` → moves S3 objects with regex filter
 - `put_metric(namespace, metric_name, value, unit, dimensions)` → publishes CloudWatch metric
 
-### 3.4. DataQuality — `app/src/dependencies/data_quality.py`
+### 3.4. DataQuality — `app/aws-glue/src/dependencies/data_quality.py`
 - 4-stage pipeline executed on raw DataFrame
 - Uses `TargetConfig` schema for dynamic validation
 - **No explicit dedup** — uniqueness guaranteed by Delta MERGE on write
 - Rejected records enriched with `_reject_table`, `_reject_rule`, `_reject_timestamp`
 - Returns `(valid_df, rejects_df)`
 
-### 3.5. Writer — `app/src/dependencies/writer.py`
+### 3.5. Writer — `app/aws-glue/src/dependencies/writer.py`
 - **Delta Lake** write with `DeltaTable.forName()` via Glue Catalog
 - Generates `cod_unico` via `F.concat_ws("_", *pk_cols)` for merge key
 - Derives `event_date` via `F.to_date(F.col(partition_col))`
@@ -112,17 +112,17 @@ flowchart TD
 - **No manual compaction** — Delta manages via auto-optimize
 - `write_rejects()` for rejected records (Parquet format)
 
-### 3.6. EtlControl — `app/src/dependencies/etl_control.py`
+### 3.6. EtlControl — `app/aws-glue/src/dependencies/etl_control.py`
 - Separate class for registering in `etl_control`
 - Method `register(execution_id, source_name, status, records_read, records_written, records_rejected, target, elapsed_seconds, error_message)`
 - Resolves account_id via boto3 STS
 
-### 3.7. QualityMetrics — `app/src/dependencies/quality_metrics.py`
+### 3.7. QualityMetrics — `app/aws-glue/src/dependencies/quality_metrics.py`
 - Separate class for metrics in `data_quality_metrics`
 - Method `save(target, status, records_read, records_written, records_rejected)`
 - Resolves account_id via boto3 STS
 
-### 3.8. Processor — `app/src/dependencies/processor.py`
+### 3.8. Processor — `app/aws-glue/src/dependencies/processor.py`
 - Pipeline orchestrator
 - Method `run(source, target, mode="streaming", dataframe=None)`
 - In batch mode with pre-read `dataframe`, skips the read step
@@ -135,7 +135,7 @@ flowchart TD
   6. QualityMetrics.save()
   7. Logging
 
-### 3.9. Main — `app/src/main.py`
+### 3.9. Main — `app/aws-glue/src/main.py`
 - Argument parsing via `argparse`: `--config_s3_path`, `--conf`, `--mode` (batch|streaming)
 - `main()`: loads config (`Config.from_s3(args.config_s3_path)`), gets sorted list via `config.sources`, dispatches `_run_batch()` or `_run_streaming()`
 - `_run_batch()`: iterates sources in `order`, reads batch of each table and processes via `Processor.run(mode="batch", dataframe=raw_df)`. Errors in one table do not block the others.
@@ -143,8 +143,8 @@ flowchart TD
 - `_parse_conf()` converts string "key=val key=val" to dict
 - `_init_spark()` applies configs dynamically
 
-### 3.10. Lambda — `app/lambdas/start_glue_job.py`
-- Lives **outside** `app/src` (kept separate from the Glue job source)
+### 3.10. Lambda — `app/aws-lambda/start_workflow/start_glue_job.py`
+- Lives **outside** `app/aws-glue/src` (kept separate from the Glue job source)
 - Triggered by EventBridge when the DMS full load completes
 - Starts the full-load Glue workflow via `glue.start_workflow_run()`
 - The workflow uses native Glue sequencing (on-demand + conditional triggers) to start streaming after the batch succeeds, avoiding polling and concurrent writes
@@ -159,20 +159,20 @@ flowchart TD
 | `aws_kms_alias.glue` | `kms.tf` | KMS Alias | `alias/glue-streaming-minibatch-dms` |
 | `aws_glue_security_configuration.glue` | `glue.tf` | Security Config | CloudWatch SSE-KMS, bookmarks CSE-KMS, S3 SSE-KMS |
 | `aws_glue_connection.vpc` | `glue.tf` | Glue Connection | NETWORK, private subnet, default SG |
-| `aws_glue_job.full_load_batch` | `glue.tf` | Glue Job (batch) | Glue 5.1, Python 3.10, G.1X, 4 workers, `--mode=batch` — processes N tables sequentially |
-| `aws_glue_job.streaming_minibatch` | `glue.tf` | Glue Job (streaming) | Glue 5.1, Python 3.10, G.0.25X, 1 worker, `--mode=streaming` — N concurrent queries |
+| `aws_glue_job.full_load_batch` | `glue.tf` | Glue Job (batch) | `glue-flight-radar-batch` — Glue 5.1, Python 3.9, `--mode=batch` — processes N tables sequentially |
+| `aws_glue_job.streaming_minibatch` | `glue.tf` | Glue Job (streaming) | `glue-flight-radar-streaming` — Glue 5.1, Python 3.9, `--mode=streaming` — N concurrent queries |
 | `aws_glue_trigger.start_streaming_after_full_load` | `glue.tf` | Glue Trigger | CONDITIONAL — starts streaming CDC after batch succeed |
 | `aws_iam_role.lambda_glue_starter` | `iam.tf` | IAM Role | Role for Lambda to start the full-load Glue job |
-| `aws_iam_role_policy.lambda_glue_starter` | `iam.tf` | IAM Policy | Permission `glue:StartJobRun` on full_load_batch job |
+| `aws_iam_role_policy.lambda_glue_starter` | `iam.tf` | IAM Policy | Permission `glue:StartWorkflowRun` on the full-load workflow |
 | `aws_lambda_function.glue_starter` | `lambda.tf` | Lambda Function | Starts the full-load Glue job (EventBridge target) |
 | `aws_lambda_permission.eventbridge_invoke_glue_starter` | `lambda.tf` | Lambda Permission | Allows EventBridge to invoke the Lambda |
 | `aws_cloudwatch_event_rule.full_load_complete` | `cloudwatch.tf` | EventBridge Rule | DMS full load completed event (source=aws.dms) |
 | `aws_cloudwatch_event_target.start_glue_batch` | `cloudwatch.tf` | EventBridge Target | Triggers the Lambda via InvokeFunction |
-| `data.archive_file.helpers` | `s3.tf` | Archive Data | Creates helpers.zip from `app/src/dependencies/` |
-| `aws_s3_object.main_py` | `s3.tf` | S3 Object | Uploads `main.py` to `glue-jobs/flight-radar/src/` |
-| `aws_s3_object.helpers_zip` | `s3.tf` | S3 Object | Uploads `helpers.zip` to `glue-jobs/flight-radar/src/dependencies/` |
-| `aws_s3_object.config_json` | `s3.tf` | S3 Object | Uploads `config.json` (with `{account_id}` resolved) to `glue-jobs/flight-radar/src/dependencies/config/` |
-| `aws_s3_object.lambda_start_glue_job` | `s3.tf` | S3 Object | Uploads Lambda source to `lambdas/flight-radar/start_workflow/` |
+| `data.archive_file.helpers` | `s3.tf` | Archive Data | Creates helpers.zip from `app/aws-glue/src/dependencies/` |
+| `aws_s3_object.main_py` | `s3.tf` | S3 Object | Uploads `main.py` to `aws-glue/jobs/flight-radar/src/` |
+| `aws_s3_object.helpers_zip` | `s3.tf` | S3 Object | Uploads `helpers.zip` to `aws-glue/jobs/flight-radar/src/dependencies/` |
+| `aws_s3_object.config_json` | `s3.tf` | S3 Object | Uploads `config.json` (with `{account_id}` resolved) to `aws-glue/jobs/flight-radar/src/dependencies/config/` |
+| `aws_s3_object.lambda_start_glue_job` | `s3.tf` | S3 Object | Uploads Lambda source to `aws-lambda/flight-radar/start_workflow/` |
 
 ### Deployment Structure (Workspace Bucket)
 
@@ -180,14 +180,20 @@ Artifacts are published to the workspace bucket mirroring the project layout:
 
 ```
 lakehouse-workspace-{account_id}/
-├── glue-jobs/flight-radar/src/
+├── aws-glue/jobs/flight-radar/src/
 │   ├── main.py
 │   └── dependencies/
 │       ├── helpers.zip
 │       └── config/config.json
-└── lambdas/flight-radar/start_workflow/
+└── aws-lambda/flight-radar/start_workflow/
     └── start_glue_job.py
 ```
+
+The Glue job is named for a **single objective** (`glue_job_name = glue-flight-radar`).
+Two job definitions are derived from it and differentiated by process in
+code/classes via the `--mode` argument:
+- `glue-flight-radar-batch` — full load (`--mode=batch`)
+- `glue-flight-radar-streaming` — streaming CDC (`--mode=streaming`)
 
 ### Dynamic Spark Configs (`locals.tf → spark_conf`)
 - `spark.sql.adaptive.enabled` = true
@@ -254,8 +260,8 @@ lakehouse-workspace-{account_id}/
 - **Bookmarks**: not used (uses `cleanSource=archive`)
 - **Separate S3 prefixes**: DMS `CdcPath` writes CDC to a distinct prefix to avoid reprocessing
 - **Two job definitions**: batch (G.1X, 4 workers) and streaming (G.0.25X, 1 worker) — share the same script
-- **Deploy layout**: Glue artifacts under `glue-jobs/flight-radar/` and Lambda under `lambdas/flight-radar/start_workflow/` in the workspace bucket
-- **Lambda location**: source in `app/lambdas/`, outside `app/src/`
+- **Deploy layout**: Glue artifacts under `aws-glue/jobs/flight-radar/` and Lambda under `aws-lambda/flight-radar/start_workflow/` in the workspace bucket
+- **Lambda location**: source in `app/aws-lambda/start_workflow/`, outside `app/aws-glue/src/`
 
 ## 9. Event Flow
 

@@ -210,7 +210,7 @@ flowchart TD
     LAMBDA["Lambda glue_starter<br/>start_glue_job.py"]
     BATCH["Glue Job Batch<br/>glue-flight-radar-full-load<br/>--mode=batch"]
     TRIG["Glue Trigger<br/>CONDITIONAL"]
-    STREAM["Glue Job Streaming<br/>glue-flight-radar-stream-cdc<br/>--mode=streaming"]
+    STREAM["Glue Job Streaming<br/>glue-flight-radar-streaming<br/>--mode=streaming"]
     READER["Reader"]
     DQ["DataQuality<br/>(4 estágios)"]
     WRITER["Writer<br/>(Delta MERGE por PK)"]

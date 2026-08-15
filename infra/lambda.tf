@@ -13,7 +13,7 @@ data "archive_file" "lambda_glue_starter" {
 resource "aws_lambda_function" "glue_starter" {
   filename         = data.archive_file.lambda_glue_starter.output_path
   source_code_hash = data.archive_file.lambda_glue_starter.output_base64sha256
-  function_name    = "${var.full_load_job_name}-starter"
+  function_name    = "${local.glue_full_load_job_name}-starter"
   role             = aws_iam_role.lambda_glue_starter.arn
   handler          = "start_glue_job.lambda_handler"
   runtime          = "python3.9"
@@ -21,12 +21,12 @@ resource "aws_lambda_function" "glue_starter" {
 
   environment {
     variables = {
-      GLUE_WORKFLOW_NAME = "${var.full_load_job_name}-workflow"
+      GLUE_WORKFLOW_NAME = "${local.glue_full_load_job_name}-workflow"
     }
   }
 
   tags = merge(local.common_tags, {
-    Name = "${var.full_load_job_name}-starter"
+    Name = "${local.glue_full_load_job_name}-starter"
   })
 }
 

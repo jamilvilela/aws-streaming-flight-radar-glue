@@ -1,6 +1,16 @@
 #===============================================================================
-# Terraform Variable Values — Glue Streaming Mini-Batch
+# Terraform Variable Values — Glue Flight Radar (example)
 #===============================================================================
+#
+# Copy this file to `terraform.tfvars` and adjust the values for your
+# environment. `terraform.tfvars` is gitignored to avoid committing secrets.
+#
+#   cp terraform.tfvars.example terraform.tfvars
+#
+# The Glue job is named for a single objective (`glue-flight-radar`). Two job
+# definitions are derived from it and differentiated by process:
+#   - `glue-flight-radar-batch`      (full load,  --mode=batch)
+#   - `glue-flight-radar-streaming`  (streaming,  --mode=streaming)
 
 region      = "us-east-1"
 environment = "prod"
@@ -24,8 +34,12 @@ tables = {
   data_quality           = "data_quality_metrics"
 }
 
-
+# Single objective — do NOT use "stream-cdc" or "full-load" here.
 glue_job_name = "glue-flight-radar"
+
+# Optional override for the full-load (batch) job name.
+# Defaults to "<glue_job_name>-batch" when left empty.
+# full_load_job_name = "glue-flight-radar-batch"
 
 glue_iam_role_name = "role-datalake-analytics"
 

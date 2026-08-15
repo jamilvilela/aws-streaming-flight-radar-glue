@@ -75,7 +75,7 @@ The Glue Job processes these files in **mini-batches** (60s), ensuring:
 ### 5.1. Configuration Files (single file)
 | File | Content | Class |
 |---------|----------|--------|
-| `app/src/dependencies/config/config.json` | Unified configuration (source + target) | `Config` |
+| `app/aws-glue/src/dependencies/config/config.json` | Unified configuration (source + target) | `Config` |
 
 ### 5.2. Classes
 
@@ -89,9 +89,9 @@ The Glue Job processes these files in **mini-batches** (60s), ensuring:
 | `QualityMetrics` | `quality_metrics.py` | Save metrics to `data_quality_metrics` |
 | `Processor` | `processor.py` | Orchestrate full pipeline (delegates EtlControl/QualityMetrics) |
 | `main.py` | `main.py` | Entry point: init Spark 4.0 / Glue 5.1, parse args via argparse, run |
-| Lambda handler | `app/lambdas/start_glue_job.py` | Starts the full-load Glue workflow (outside `src`) |
+| Lambda handler | `app/aws-lambda/start_workflow/start_glue_job.py` | Starts the full-load Glue workflow (outside the Glue src) |
 
-> All support modules live in `app/src/dependencies/`; the Lambda lives separately in `app/lambdas/`.
+> All support modules live in `app/aws-glue/src/dependencies/`; the Lambda lives separately in `app/aws-lambda/start_workflow/`.
 
 ### 4.2. Infrastructure (Terraform)
 
@@ -196,8 +196,8 @@ Suggested schema (enriched):
 | `infra/` | Complete Terraform module (Glue job, KMS, Security Config, Connection, Databases) |
 | `scripts/setup-env.sh` | Bash script for AWS environment setup via Terraform (points to `infra/`) |
 | `scripts/rollback-setup.sh` | Bash script for AWS environment rollback |
-| `app/src/dependencies/config/config.json` | Unified configuration (JSON) |
-| `app/lambdas/start_glue_job.py` | Lambda that starts the full-load Glue workflow |
+| `app/aws-glue/src/dependencies/config/config.json` | Unified configuration (JSON) |
+| `app/aws-lambda/start_workflow/start_glue_job.py` | Lambda that starts the full-load Glue workflow |
 
 ## 8. Acceptance Criteria
 
@@ -233,11 +233,11 @@ Suggested schema (enriched):
 
 ```
 lakehouse-workspace-{account_id}/
-├── glue-jobs/flight-radar/src/
+├── aws-glue/jobs/flight-radar/src/
 │   ├── main.py
 │   └── dependencies/
 │       ├── helpers.zip
 │       └── config/config.json
-└── lambdas/flight-radar/start_workflow/
+└── aws-lambda/flight-radar/start_workflow/
     └── start_glue_job.py
 ```

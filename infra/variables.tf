@@ -57,15 +57,15 @@ variable "tables" {
 }
 
 variable "glue_job_name" {
-  description = "Name of the streaming Glue job (CDC)"
+  description = "Base name of the Glue job (single objective). Both the batch and streaming job definitions derive from this value."
   type        = string
-  default     = "glue-flight-radar-stream-cdc"
+  default     = "glue-flight-radar"
 }
 
 variable "full_load_job_name" {
-  description = "Name of the full-load batch Glue job"
+  description = "Name of the full-load batch Glue job (derived from glue_job_name)"
   type        = string
-  default     = "glue-flight-radar-full-load"
+  default     = ""
 }
 
 variable "glue_iam_role_name" {

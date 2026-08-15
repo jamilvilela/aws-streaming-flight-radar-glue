@@ -5,7 +5,7 @@
 # ── Glue Security Configuration ──────────────────────────────────────────────
 
 resource "aws_glue_security_configuration" "glue" {
-  name = "glue-flight-radar-stream-cdc-security-config"
+  name = "${var.glue_job_name}-security-config"
 
   encryption_configuration {
     cloudwatch_encryption {
@@ -28,7 +28,7 @@ resource "aws_glue_security_configuration" "glue" {
 # ── Glue Connection (VPC) ────────────────────────────────────────────────────
 
 resource "aws_glue_connection" "vpc" {
-  name            = "glue-flight-radar-stream-cdc-vpc"
+  name            = "${var.glue_job_name}-vpc"
   connection_type = "NETWORK"
 
   physical_connection_requirements {
@@ -39,14 +39,14 @@ resource "aws_glue_connection" "vpc" {
   }
 
   tags = merge(local.common_tags, {
-    Name = "glue-flight-radar-stream-cdc-vpc"
+    Name = "${var.glue_job_name}-vpc"
   })
 }
 
 # ── Glue Job — Full-Load Batch ──────────────────────────────────────────────
 
 resource "aws_glue_job" "full_load_batch" {
-  name              = var.full_load_job_name
+  name              = local.glue_full_load_job_name
   role_arn          = data.aws_iam_role.datalake_analytics.arn
   glue_version      = "5.0"
   worker_type       = var.full_load_worker_type
@@ -64,7 +64,7 @@ resource "aws_glue_job" "full_load_batch" {
   default_arguments = {
     # Job bookmarks & logging
     "--job-bookmark-option"              = "job-bookmark-enable"
-    "--continuous-log-logGroup"          = "/aws-glue/jobs/${var.full_load_job_name}"
+    "--continuous-log-logGroup"          = "/aws-glue/jobs/${local.glue_full_load_job_name}"
     "--enable-auto-scaling"              = "true"
     "--enable-metrics"                   = "true"
     "--enable-continuous-cloudwatch-log" = "true"
@@ -82,7 +82,7 @@ resource "aws_glue_job" "full_load_batch" {
 
     # Spark UI
     "--enable-spark-ui"       = "true"
-    "--spark-event-logs-path" = "s3://${local.buckets.workspace}/spark-logs/${var.full_load_job_name}/"
+    "--spark-event-logs-path" = "s3://${local.buckets.workspace}/spark-logs/${local.glue_full_load_job_name}/"
 
     # Security configuration
     "--encryption-type" = "sse-s3-kms"
@@ -92,14 +92,14 @@ resource "aws_glue_job" "full_load_batch" {
   connections = length(var.glue_connections) > 0 ? var.glue_connections : [aws_glue_connection.vpc.name]
 
   tags = merge(local.common_tags, {
-    Name = var.full_load_job_name
+    Name = local.glue_full_load_job_name
   })
 }
 
 # ── Glue Job — Streaming CDC ────────────────────────────────────────────────
 
 resource "aws_glue_job" "streaming_minibatch" {
-  name              = var.glue_job_name
+  name              = local.glue_streaming_job_name
   role_arn          = data.aws_iam_role.datalake_analytics.arn
   glue_version      = "5.0"
   worker_type       = var.streaming_worker_type
@@ -117,7 +117,7 @@ resource "aws_glue_job" "streaming_minibatch" {
   default_arguments = {
     # Job bookmarks & logging
     "--job-bookmark-option"              = "job-bookmark-enable"
-    "--continuous-log-logGroup"          = "/aws-glue/jobs/${var.glue_job_name}"
+    "--continuous-log-logGroup"          = "/aws-glue/jobs/${local.glue_streaming_job_name}"
     "--enable-auto-scaling"              = "true"
     "--enable-metrics"                   = "true"
     "--enable-continuous-cloudwatch-log" = "true"
@@ -135,7 +135,7 @@ resource "aws_glue_job" "streaming_minibatch" {
 
     # Spark UI
     "--enable-spark-ui"       = "true"
-    "--spark-event-logs-path" = "s3://${local.buckets.workspace}/spark-logs/${var.glue_job_name}/"
+    "--spark-event-logs-path" = "s3://${local.buckets.workspace}/spark-logs/${local.glue_streaming_job_name}/"
 
     # Security configuration
     "--encryption-type" = "sse-s3-kms"
@@ -145,7 +145,7 @@ resource "aws_glue_job" "streaming_minibatch" {
   connections = length(var.glue_connections) > 0 ? var.glue_connections : [aws_glue_connection.vpc.name]
 
   tags = merge(local.common_tags, {
-    Name = var.glue_job_name
+    Name = local.glue_streaming_job_name
   })
 }
 
@@ -159,10 +159,10 @@ resource "aws_glue_job" "streaming_minibatch" {
 # sem execução simultânea dos dois jobs.
 
 resource "aws_glue_workflow" "dms_full_load" {
-  name = "${var.full_load_job_name}-workflow"
+  name = "${local.glue_full_load_job_name}-workflow"
 
   tags = merge(local.common_tags, {
-    Name = "${var.full_load_job_name}-workflow"
+    Name = "${local.glue_full_load_job_name}-workflow"
   })
 }
 
@@ -170,7 +170,7 @@ resource "aws_glue_workflow" "dms_full_load" {
 # Fires when the workflow run starts (via StartWorkflowRun).
 
 resource "aws_glue_trigger" "start_full_load" {
-  name          = "${var.full_load_job_name}-start-full-load"
+  name          = "${local.glue_full_load_job_name}-start-full-load"
   type          = "ON_DEMAND"
   workflow_name = aws_glue_workflow.dms_full_load.name
 
@@ -179,7 +179,7 @@ resource "aws_glue_trigger" "start_full_load" {
   }
 
   tags = merge(local.common_tags, {
-    Name = "${var.full_load_job_name}-start-full-load"
+    Name = "${local.glue_full_load_job_name}-start-full-load"
   })
 }
 
@@ -187,7 +187,7 @@ resource "aws_glue_trigger" "start_full_load" {
 # Fires when the full-load batch job succeeds within the workflow.
 
 resource "aws_glue_trigger" "start_streaming_after_full_load" {
-  name          = "${var.full_load_job_name}-start-streaming"
+  name          = "${local.glue_full_load_job_name}-start-streaming"
   type          = "CONDITIONAL"
   workflow_name = aws_glue_workflow.dms_full_load.name
 
@@ -206,6 +206,6 @@ resource "aws_glue_trigger" "start_streaming_after_full_load" {
   }
 
   tags = merge(local.common_tags, {
-    Name = "${var.full_load_job_name}-start-streaming"
+    Name = "${local.glue_full_load_job_name}-start-streaming"
   })
 }

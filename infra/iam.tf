@@ -212,7 +212,7 @@ resource "aws_iam_group_policy" "interactive_sessions_passrole" {
 # Role for the Lambda function that starts the Glue full-load batch job.
 
 resource "aws_iam_role" "lambda_glue_starter" {
-  name = "role-lambda-start-${var.full_load_job_name}"
+  name = "role-lambda-start-${local.glue_full_load_job_name}"
 
   assume_role_policy = jsonencode({
     Version = "2012-10-17"
@@ -228,7 +228,7 @@ resource "aws_iam_role" "lambda_glue_starter" {
   })
 
   tags = merge(local.common_tags, {
-    Name = "role-lambda-start-${var.full_load_job_name}"
+    Name = "role-lambda-start-${local.glue_full_load_job_name}"
   })
 }
 
@@ -256,7 +256,7 @@ resource "aws_iam_role_policy" "lambda_glue_starter" {
           "logs:PutLogEvents",
         ]
         Resource = [
-          "arn:aws:logs:${var.region}:${local.account_id}:log-group:/aws/lambda/${var.full_load_job_name}-starter:*",
+          "arn:aws:logs:${var.region}:${local.account_id}:log-group:/aws/lambda/${local.glue_full_load_job_name}-starter:*",
         ]
       },
     ]

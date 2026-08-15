@@ -22,7 +22,7 @@ description: Specialized agents for implementing the Glue Job streaming mini-bat
 **Prompt pattern to invoke:**
 ```
 Use the glue-job-builder agent to implement the {ClassName} class 
-in app/src/dependencies/{file_name}.py with the following requirements:
+in app/aws-glue/src/dependencies/{file_name}.py with the following requirements:
 - {requirement 1}
 - {requirement 2}
 ...
@@ -56,7 +56,7 @@ in app/src/dependencies/{file_name}.py with the following requirements:
 - **config.json**: unified configuration (list of tables, each with embedded source + target)
 - Clear separation between connection config and destination config
 - S3 locations (source, target, rejected, checkpoint)
-- Deployed to `glue-jobs/flight-radar/src/dependencies/config/config.json`
+- Deployed to `aws-glue/jobs/flight-radar/src/dependencies/config/config.json`
 
 ## Agent: `test-builder`
 **Purpose:** Implement unit and integration tests
@@ -76,14 +76,14 @@ in app/src/dependencies/{file_name}.py with the following requirements:
 - Python 3.9 Lambda handler triggered by EventBridge
 - `glue.start_workflow_run()` to start the full-load workflow
 - Native Glue sequencing (on-demand + conditional triggers) — no polling
-- Source kept in `app/lambdas/` (outside `app/src/`)
-- Deployed via `infra/lambda.tf` and uploaded to `lambdas/flight-radar/start_workflow/`
+- Source kept in `app/aws-lambda/start_workflow/` (outside `app/aws-glue/src/`)
+- Deployed via `infra/lambda.tf` and uploaded to `aws-lambda/flight-radar/start_workflow/`
 
 ## How to use
 
 ### To generate code for a specific class:
 ```
-@glue-job-builder Create the Reader class in app/src/dependencies/reader.py 
+@glue-job-builder Create the Reader class in app/aws-glue/src/dependencies/reader.py 
 that reads Parquet data from S3 in pure streaming (no Glue, no batch, no bookmarks).
 ```
 

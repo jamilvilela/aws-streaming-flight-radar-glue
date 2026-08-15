@@ -79,11 +79,11 @@ Data replicated by DMS in the landing bucket needs to be processed before it's r
   - Glue Connection type NETWORK for VPC access
   - Glue Job with Spark configs passed via `--conf` (AQE, shuffle, memory, compression)
   - `data.archive_file.helpers` + `aws_s3_object.*` for declarative upload of Python scripts, JSON configs and Lambda source to S3
-  - Glue artifacts deployed under `glue-jobs/flight-radar/` and Lambda under `lambdas/flight-radar/start_workflow/` in the workspace bucket
+  - Glue artifacts deployed under `aws-glue/jobs/flight-radar/` and Lambda under `aws-lambda/flight-radar/start_workflow/` in the workspace bucket
   - Glue Catalog databases and tables are **not created** — they already exist in the Data Lake
 
-### FR13 — Lambda Starter (outside `src`)
-- Lambda source kept in `app/lambdas/`, outside the `app/src/` Glue job source
+### FR13 — Lambda Starter (outside the Glue src)
+- Lambda source kept in `app/aws-lambda/start_workflow/`, outside the `app/aws-glue/src/` Glue job source
 - Triggered by EventBridge when the DMS full load completes
 - Starts the full-load Glue workflow, with native Glue sequencing to start streaming afterward
 

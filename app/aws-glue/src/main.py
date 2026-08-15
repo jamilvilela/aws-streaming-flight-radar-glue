@@ -84,7 +84,7 @@ def _init_spark(spark_configs: dict[str, str] | None = None) -> SparkSession:
     Configs are applied dynamically — no values are hardcoded.
     """
     builder = SparkSession.builder \
-        .appName("glue-flight-radar-full-load-cdc") \
+        .appName("glue-flight-radar") \
         .enableHiveSupport()
 
     if spark_configs:

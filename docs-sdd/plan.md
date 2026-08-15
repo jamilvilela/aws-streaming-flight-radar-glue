@@ -16,38 +16,29 @@ author: Data Engineering Team
 
 ```
 app/
-├── src/
-│   ├── main.py              # Glue Job entry point (argparse, dynamic --conf, --mode batch|streaming)
-│   ├── __init__.py
-│   └── dependencies/        # Support modules (packaged as helpers.zip)
-│       ├── config_models.py # Dataclasses (Config, SourceConfig, TargetConfig, etc.)
-│       ├── config/          # Configuration sub-package (holds JSON files)
-│       │   └── config.json  #   → Unified configuration (all tables with source + target)
-│       ├── reader.py        # Streaming and batch data reader (Reader)
-│       ├── data_quality.py  # Validation and quality (DataQuality) — 4 stages
-│       ├── writer.py        # Data Lake write (Writer) — Delta Lake
-│       ├── processor.py     # Orchestrator (Processor)
-│       ├── etl_control.py   # Execution log in etl_control
-│       ├── quality_metrics.py # Quality metrics in data_quality_metrics
-│       └── aws_helper.py    # Reusable boto3 utility (AwsHelper)
-├── lambdas/                  # Lambda source code (deployed separately from Glue)
-│   └── start_glue_job.py    # Lambda that starts the full-load Glue workflow
-└── tests/                    # Unit and integration tests
-    ├── __init__.py
-    ├── conftest.py            # Adds app/ to sys.path
-    ├── unit/
-    │   ├── __init__.py
-    │   ├── test_config.py
-    │   ├── test_reader.py
-    │   ├── test_data_quality.py
-    │   ├── test_writer.py
-    │   └── test_processor.py
-    └── integration/
-        ├── __init__.py
-        ├── conftest.py
-        ├── test_s3_landing.py
-        ├── test_glue_catalog.py
-        └── test_pipeline_e2e.py
+├── aws-glue/                  # Glue job source + tests
+│   ├── src/
+│   │   ├── main.py            # Glue Job entry point (argparse, dynamic --conf, --mode batch|streaming)
+│   │   ├── __init__.py
+│   │   └── dependencies/      # Support modules (packaged as helpers.zip)
+│   │       ├── config_models.py # Dataclasses (Config, SourceConfig, TargetConfig, etc.)
+│   │       ├── config/        # Configuration sub-package (holds JSON files)
+│   │       │   └── config.json  #   → Unified configuration (all tables with source + target)
+│   │       ├── reader.py      # Streaming and batch data reader (Reader)
+│   │       ├── data_quality.py# Validation and quality (DataQuality) — 4 stages
+│   │       ├── writer.py      # Data Lake write (Writer) — Delta Lake
+│   │       ├── processor.py   # Orchestrator (Processor)
+│   │       ├── etl_control.py # Execution log in etl_control
+│   │       ├── quality_metrics.py # Quality metrics in data_quality_metrics
+│   │       └── aws_helper.py  # Reusable boto3 utility (AwsHelper)
+│   └── tests/                 # Unit and integration tests
+│       ├── __init__.py
+│       ├── conftest.py        # Adds app/aws-glue to sys.path
+│       ├── unit/
+│       └── integration/
+└── aws-lambda/                # Lambda source (deployed separately from Glue)
+    └── start_workflow/
+        └── start_glue_job.py  # Lambda that starts the full-load Glue workflow
 infra/                     # Complete Terraform module
 ├── main.tf               # Module overview (no resources)
 ├── kms.tf                # KMS key + alias (encryption)
@@ -61,7 +52,8 @@ infra/                     # Complete Terraform module
 ├── data.tf               # Data sources (VPC, IAM Role, Subnets, SG)
 ├── locals.tf             # Computed locals (buckets, spark_conf)
 ├── versions.tf           # Provider versions
-└── terraform.tfvars      # Default variable values
+├── terraform.tfvars      # Default variable values (gitignored)
+└── terraform.tfvars.example # Template for variable values
 scripts/
 ├── setup-env.sh          # AWS environment setup via Terraform (artifact upload via aws_s3_object)
 └── rollback-setup.sh     # AWS environment rollback (no S3 cleanup)
@@ -81,32 +73,38 @@ docs-sdd/
 ## Deployment Structure (S3 Workspace Bucket)
 
 The workspace bucket `lakehouse-workspace-{account_id}` mirrors the project
-layout. Glue artifacts live under `glue-jobs/flight-radar/` and Lambda code
-under `lambdas/flight-radar/start_workflow/`:
+layout. Glue artifacts live under `aws-glue/jobs/flight-radar/` and Lambda
+code under `aws-lambda/flight-radar/start_workflow/`:
 
 ```
 lakehouse-workspace-{account_id}/
-├── glue-jobs/
-│   └── flight-radar/
-│       └── src/
-│           ├── main.py                          # Glue job script
-│           └── dependencies/
-│               ├── helpers.zip                  # Support modules (archive of dependencies/)
-│               └── config/
-│                   └── config.json              # Unified configuration (account_id resolved)
-└── lambdas/
+├── aws-glue/
+│   └── jobs/
+│       └── flight-radar/
+│           └── src/
+│               ├── main.py                          # Glue job script
+│               └── dependencies/
+│                   ├── helpers.zip                  # Support modules (archive of dependencies/)
+│                   └── config/
+│                       └── config.json              # Unified configuration (account_id resolved)
+└── aws-lambda/
     └── flight-radar/
         └── start_workflow/
-            └── start_glue_job.py                # Lambda source
+            └── start_glue_job.py                    # Lambda source
 ```
 
-The `glue_job_name` value `glue-flight-radar-stream-cdc` drives the Glue job
-names, triggers, and IAM resources. The script and config paths are resolved
-in `infra/locals.tf` as defaults pointing to the paths above.
+The Glue job is named for a **single objective** (`glue_job_name = glue-flight-radar`).
+Two job definitions are derived from it and differentiated by process:
+- `glue-flight-radar-batch` — full load (`--mode=batch`)
+- `glue-flight-radar-streaming` — streaming CDC (`--mode=streaming`)
+
+The processes are differentiated in code/classes via the `--mode` argument.
+The script and config paths are resolved in `infra/locals.tf` as defaults
+pointing to the paths above.
 
 ## Configuration (JSON)
 
-### `app/src/dependencies/config/config.json` — Unified configuration (all tables)
+### `app/aws-glue/src/dependencies/config/config.json` — Unified configuration (all tables)
 ```json
 [
   {
@@ -130,7 +128,7 @@ in `infra/locals.tf` as defaults pointing to the paths above.
 > The `flights_cdc` source is used for **streaming CDC** (G.0.25X, 1 worker).
 > DMS `CdcPath` parameterizes the S3 prefix for CDC files, ensuring the streaming job does not reprocess full load files.
 
-### `app/src/dependencies/config/config.json` — Target configuration (embedded in each source)
+### `app/aws-glue/src/dependencies/config/config.json` — Target configuration (embedded in each source)
 ```json
 {
   "catalog": { "database": "db_raw", "table": "tbl_opensky_flights" },
@@ -321,12 +319,12 @@ sequenceDiagram
 
 | # | Deliverable | Status |
 |---|-----------|--------|
-| 1 | `app/src/main.py` + support modules in `app/src/dependencies/` (config/ holds JSON) | ✅ |
-| 2 | `app/lambdas/start_glue_job.py` (Lambda source, outside src) | ✅ |
-| 3 | `app/src/dependencies/config/config.json` (unified config with embedded target) | ✅ |
+| 1 | `app/aws-glue/src/main.py` + support modules in `app/aws-glue/src/dependencies/` (config/ holds JSON) | ✅ |
+| 2 | `app/aws-lambda/start_workflow/start_glue_job.py` (Lambda source, outside the Glue src) | ✅ |
+| 3 | `app/aws-glue/src/dependencies/config/config.json` (unified config with embedded target) | ✅ |
 | 4 | `infra/` complete Terraform module (Glue Job, KMS, Security Config, Connection, Upload) | ✅ |
-| 5 | `tests/unit/` (100% coverage) | ✅ |
-| 6 | `tests/integration/` (boto3) | ✅ |
+| 5 | `app/aws-glue/tests/unit/` (100% coverage) | ✅ |
+| 6 | `app/aws-glue/tests/integration/` (boto3) | ✅ |
 | 7 | `scripts/setup-env.sh` + `rollback-setup.sh` (no S3 upload in scripts) | ✅ |
 | 8 | Pipeline validated and in production | ⏳ Pending |
 | 9 | `docs-sdd/` synced with current code | ✅ |

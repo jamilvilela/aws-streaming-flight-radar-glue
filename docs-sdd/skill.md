@@ -130,8 +130,8 @@ Data sources: IAM role `role-datalake-analytics`, default VPC, subnets, security
 - Method `run(source, target)` executes 6-stage pipeline: Read → Validate → Write Rejects → Write (Delta MERGE) → Register → Metrics
 - Delegates `_register_execution` to `EtlControl` and `_save_quality_metrics` to `QualityMetrics`
 
-### 9. Lambda — `app/lambdas/start_glue_job.py`
-- Kept **outside** `app/src`, separate from the Glue job source
+### 9. Lambda — `app/aws-lambda/start_workflow/start_glue_job.py`
+- Kept **outside** `app/aws-glue/src`, separate from the Glue job source
 - Triggered by EventBridge when DMS completes the full load
 - Starts the full-load Glue workflow via `glue.start_workflow_run()`
 - Native Glue sequencing (on-demand + conditional triggers) starts streaming after the batch succeeds — no polling in the Lambda
@@ -140,12 +140,12 @@ Data sources: IAM role `role-datalake-analytics`, default VPC, subnets, security
 
 ```
 lakehouse-workspace-{account_id}/
-├── glue-jobs/flight-radar/src/
+├── aws-glue/jobs/flight-radar/src/
 │   ├── main.py
 │   └── dependencies/
 │       ├── helpers.zip
 │       └── config/config.json
-└── lambdas/flight-radar/start_workflow/
+└── aws-lambda/flight-radar/start_workflow/
     └── start_glue_job.py
 ```
 
@@ -187,7 +187,7 @@ Spark configs are defined in `infra/locals.tf` in the `spark_properties` map:
 
 | Parameter | Description | Example |
 |-----------|-----------|---------|
-| `--config_s3_path` | S3 path to unified config.json (all tables) | `s3://.../glue-jobs/flight-radar/src/dependencies/config/config.json` |
+| `--config_s3_path` | S3 path to unified config.json (all tables) | `s3://.../aws-glue/jobs/flight-radar/src/dependencies/config/config.json` |
 | `--mode` | Execution mode: `batch` or `streaming` | `batch` |
 | `--conf` | Dynamic Spark configs (key=val key=val ...) | `spark.sql.shuffle.partitions=200 ...` |
 

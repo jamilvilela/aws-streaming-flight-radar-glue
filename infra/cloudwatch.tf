@@ -5,7 +5,7 @@
 # ── EventBridge Rule — Full Load Complete ───────────────────────────────────
 
 resource "aws_cloudwatch_event_rule" "full_load_complete" {
-  name        = "${var.full_load_job_name}-complete"
+  name        = "${local.glue_full_load_job_name}-complete"
   description = "Triggered when DMS full load completes for flight_radar"
 
   # DMS não emite detail-type "DMS Full Load Completed". O evento real de
@@ -24,7 +24,7 @@ resource "aws_cloudwatch_event_rule" "full_load_complete" {
   })
 
   tags = merge(local.common_tags, {
-    Name = "${var.full_load_job_name}-complete"
+    Name = "${local.glue_full_load_job_name}-complete"
   })
 }
 

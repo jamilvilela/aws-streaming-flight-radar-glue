@@ -20,8 +20,14 @@ locals {
   config_s3_path  = var.glue_config_s3_path != "" ? var.glue_config_s3_path : "s3://${local.buckets.workspace}/aws-glue/jobs/flight-radar/src/dependencies/config/config.json"
   extra_py_files  = var.glue_extra_py_files != "" ? var.glue_extra_py_files : "s3://${local.buckets.workspace}/aws-glue/jobs/flight-radar/src/dependencies/helpers.zip"
 
+  # Single objective, two job definitions derived from glue_job_name.
+  # The processes are differentiated in code/classes via --mode (batch|streaming).
+  glue_batch_job_name     = "${var.glue_job_name}-batch"
+  glue_streaming_job_name = "${var.glue_job_name}-streaming"
+  glue_full_load_job_name = var.full_load_job_name != "" ? var.full_load_job_name : local.glue_batch_job_name
+
   # KMS key alias
-  kms_key_alias = "alias/glue-flight-radar-stream-cdc"
+  kms_key_alias = "alias/glue-flight-radar"
 
   # Spark configuration properties (passed via --conf)
   spark_properties = {

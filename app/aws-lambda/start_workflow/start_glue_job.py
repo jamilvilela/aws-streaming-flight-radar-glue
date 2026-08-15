@@ -13,7 +13,7 @@ import boto3
 
 glue = boto3.client("glue")
 
-WORKFLOW_NAME = os.environ.get("GLUE_WORKFLOW_NAME", "glue-flight-radar-full-load-workflow")
+WORKFLOW_NAME = os.environ.get("GLUE_WORKFLOW_NAME", "glue-flight-radar-batch-workflow")
 
 
 def lambda_handler(event: dict, context: object) -> dict:
