@@ -9,7 +9,6 @@ from __future__ import annotations
 from datetime import datetime
 
 import pytest
-from pyspark.sql import SparkSession
 from pyspark.sql.types import (
     LongType,
     StringType,
@@ -23,17 +22,6 @@ from src.dependencies.data_quality import DataQuality
 
 
 # ── Fixtures ─────────────────────────────────────────────────────────────────
-
-@pytest.fixture(scope="session")
-def spark():
-    """Create a local SparkSession for testing."""
-    return SparkSession.builder \
-        .master("local[2]") \
-        .appName("test-data-quality") \
-        .config("spark.sql.adaptive.enabled", "false") \
-        .config("spark.sql.shuffle.partitions", "2") \
-        .getOrCreate()
-
 
 @pytest.fixture
 def flights_target():
@@ -171,17 +159,17 @@ class TestDataQuality:
             assert row._reject_table == "tbl_flights"
             assert hasattr(row, "_reject_rule")
 
-    def test_resolve_type(self, dq):
+    def test_resolve_type(self):
         """_resolve_type should map schema type strings to Spark DataTypes."""
         from pyspark.sql.types import LongType, StringType, TimestampType
-        assert isinstance(dq._resolve_type("bigint"), LongType)
-        assert isinstance(dq._resolve_type("string"), StringType)
-        assert isinstance(dq._resolve_type("timestamp"), TimestampType)
-        assert isinstance(dq._resolve_type("unknown"), StringType)  # default fallback
+        assert isinstance(DataQuality._resolve_type("bigint"), LongType)
+        assert isinstance(DataQuality._resolve_type("string"), StringType)
+        assert isinstance(DataQuality._resolve_type("timestamp"), TimestampType)
+        assert isinstance(DataQuality._resolve_type("unknown"), StringType)  # default fallback
 
-    def test_reject_schema(self, dq):
+    def test_reject_schema(self):
         """_reject_schema should return the expected StructType."""
-        schema = dq._reject_schema()
+        schema = DataQuality._reject_schema()
         field_names = [f.name for f in schema.fields]
         assert "_reject_table" in field_names
         assert "_reject_rule" in field_names
@@ -189,23 +177,24 @@ class TestDataQuality:
 
     def test_data_without_pk(self, spark, dq):
         """Config without PK should pass through without duplicate removal."""
-        config = SourceConfig(
-            source="test",
-            database="db",
-            table="test",
+        target = TargetConfig(
+            catalog={"database": "db_raw", "table": "tbl_test"},
+            location="s3://raw/tables/tbl_test/",
+            rejected_location="s3://raw/tables/tbl_test/Rejected/",
             format="parquet",
-            schema={"col1": {"type": "string", "nullable": True, "comment": ""}},
+            compression="snappy",
             partition_keys=[],
+            schema={"col1": SchemaField(type="string", nullable=True, comment="")},
             primary_key=[],
             enum_columns={},
-            cdc_config=None,
+        )
+        source = SourceConfig(
+            source="test",
             source_location="s3://bucket/",
-            target_location="s3://bucket/",
-            rejected_location="s3://bucket/Rejected/",
-            checkpoint_location="",
+            target=target,
         )
         schema = StructType([StructField("col1", StringType(), True)])
         df = spark.createDataFrame([("hello",)], schema)
-        valid, rejects = dq.validate(df, config)
+        valid, rejects = dq.validate(df, target, source)
         assert valid.count() == 1
         assert rejects.isEmpty()

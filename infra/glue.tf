@@ -74,6 +74,9 @@ resource "aws_glue_job" "full_load_batch" {
     "--extra-py-files" = local.extra_py_files
     "--mode"           = "batch"
 
+    # Delta Lake support (writer.py importa delta.tables)
+    "--datalake-formats" = "delta"
+
     # Spark configs passed via --conf (parsed dynamically by main.py)
     "--conf" = local.spark_conf
 
@@ -123,6 +126,9 @@ resource "aws_glue_job" "streaming_minibatch" {
     "--config_s3_path" = local.config_s3_path
     "--extra-py-files" = local.extra_py_files
     "--mode"           = "streaming"
+
+    # Delta Lake support (writer.py importa delta.tables)
+    "--datalake-formats" = "delta"
 
     # Spark configs passed via --conf (parsed dynamically by main.py)
     "--conf" = local.spark_conf

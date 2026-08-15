@@ -2,7 +2,10 @@
 Integration tests — S3 Landing bucket structure validation.
 
 Validates that the expected bucket, folders, and sample files exist
-in the lakehouse-landing S3 bucket.
+in the lakehouse-landing S3 bucket for the DMS CDC pipeline.
+
+DMS writes to ``dms/flightradar/flight_radar/<table>/`` (full load) and
+monthly folders ``aircraft_positions_<YYYY>_<MM>/`` for the positions table.
 
 All tests are marked @pytest.mark.integration.
 """
@@ -10,6 +13,8 @@ All tests are marked @pytest.mark.integration.
 from __future__ import annotations
 
 import pytest
+
+LANDING_PREFIX = "dms/flightradar/flight_radar/"
 
 
 @pytest.mark.integration
@@ -21,23 +26,34 @@ class TestS3LandingStructure:
         response = s3_client.head_bucket(Bucket=landing_bucket)
         assert response["ResponseMetadata"]["HTTPStatusCode"] == 200
 
-    def test_flights_prefix_exists(self, s3_client, landing_bucket):
-        """The flights prefix must exist in the landing bucket."""
+    def test_aircraft_prefix_exists(self, s3_client, landing_bucket):
+        """The aircraft full-load prefix must exist in the landing bucket."""
         response = s3_client.list_objects_v2(
             Bucket=landing_bucket,
-            Prefix="flight_radar/flights/",
+            Prefix=f"{LANDING_PREFIX}aircraft/",
             MaxKeys=1,
         )
         assert response["KeyCount"] > 0, (
-            f"No objects found under flight_radar/flights/ in {landing_bucket}"
+            f"No objects found under {LANDING_PREFIX}aircraft/ in {landing_bucket}"
+        )
+
+    def test_aircraft_positions_prefix_exists(self, s3_client, landing_bucket):
+        """The aircraft_positions (monthly partition) prefix must exist."""
+        response = s3_client.list_objects_v2(
+            Bucket=landing_bucket,
+            Prefix=f"{LANDING_PREFIX}aircraft_positions_",
+            MaxKeys=1,
+        )
+        assert response["KeyCount"] > 0, (
+            f"No objects found under {LANDING_PREFIX}aircraft_positions_* in {landing_bucket}"
         )
 
     def test_parquet_files_present(self, s3_client, landing_bucket):
-        """At least one Parquet file should exist under the flights prefix."""
+        """At least one Parquet file should exist under the aircraft prefix."""
         paginator = s3_client.get_paginator("list_objects_v2")
         pages = paginator.paginate(
             Bucket=landing_bucket,
-            Prefix="flight_radar/flights/",
+            Prefix=f"{LANDING_PREFIX}aircraft/",
         )
         found_parquet = False
         for page in pages:
@@ -49,14 +65,14 @@ class TestS3LandingStructure:
                     break
             if found_parquet:
                 break
-        assert found_parquet, "No .parquet files found in flight_radar/flights/"
+        assert found_parquet, f"No .parquet files found in {LANDING_PREFIX}aircraft/"
 
-    def test_partition_folders_exist(self, s3_client, landing_bucket):
-        """Partition folders (year=, month=, day=) should exist."""
+    def test_monthly_partition_folders_exist(self, s3_client, landing_bucket):
+        """DMS monthly partition folders (aircraft_positions_YYYY_MM) should exist."""
         paginator = s3_client.get_paginator("list_objects_v2")
         pages = paginator.paginate(
             Bucket=landing_bucket,
-            Prefix="flight_radar/flights/",
+            Prefix=LANDING_PREFIX,
             Delimiter="/",
         )
         common_prefixes = []
@@ -65,23 +81,12 @@ class TestS3LandingStructure:
                 for cp in page["CommonPrefixes"]:
                     common_prefixes.append(cp["Prefix"])
 
-        # DMS may write with or without Hive-style partitions
-        has_partitions = any("year=" in p for p in common_prefixes)
-        # Also check deeper
-        if not has_partitions:
-            pages = paginator.paginate(
-                Bucket=landing_bucket,
-                Prefix="flight_radar/flights/year=",
-                MaxKeys=1,
-            )
-            for page in pages:
-                if page["KeyCount"] > 0:
-                    has_partitions = True
-                    break
-
-        # This is an informative assertion — DMS may not use Hive partitions
-        if not has_partitions:
-            pytest.skip("No Hive-style partitions found — DMS may use flat structure")
+        has_positions = any("aircraft_positions_" in p for p in common_prefixes)
+        if not has_positions:
+            pytest.skip("No aircraft_positions_* monthly folders found")
+        assert any("aircraft_positions_" in p for p in common_prefixes), (
+            f"Expected aircraft_positions_* folders under {LANDING_PREFIX}, got {common_prefixes}"
+        )
 
     def test_no_empty_bucket(self, s3_client, landing_bucket):
         """The bucket should contain some objects (not empty)."""

@@ -45,6 +45,10 @@ locals {
     # Delta Lake / Lakehouse configs
     "spark.databricks.delta.properties.defaults.autoOptimize.optimizeWrite" = "true"
     "spark.databricks.delta.properties.defaults.autoOptimize.autoCompact"   = "true"
+    # Delta Lake Spark extension + catalog (obrigatório para DeltaTable e formato delta)
+    "spark.sql.extensions"            = "io.delta.sql.DeltaSparkSessionExtension"
+    "spark.sql.catalog.spark_catalog" = "org.apache.spark.sql.delta.catalog.DeltaCatalog"
+    "spark.delta.logStore.class"      = "org.apache.spark.sql.delta.storage.S3SingleDriverLogStore"
   }
 
   # Build the --conf string: key=value key=value ...

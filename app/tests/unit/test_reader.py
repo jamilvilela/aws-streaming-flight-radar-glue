@@ -34,29 +34,36 @@ def flights_source():
 
 
 class TestReader:
+    def _mock_stream_builder(self, spark_mock, df_mock):
+        """Configure the readStream mock chain so option() returns the builder."""
+        builder = spark_mock.readStream.format.return_value
+        builder.option.return_value = builder
+        builder.load.return_value = df_mock
+        return builder
+
     def test_read_streaming(self, reader, spark_mock, flights_source):
         """Reader should always use streaming mode."""
         df_mock = MagicMock()
-        spark_mock.readStream.format.return_value.load.return_value = df_mock
+        builder = self._mock_stream_builder(spark_mock, df_mock)
 
         result = reader.read(flights_source)
 
         spark_mock.readStream.format.assert_called_once_with("parquet")
-        args, _ = spark_mock.readStream.format.return_value.load.call_args
+        args, _ = builder.load.call_args
         assert args[0] == flights_source.source_location
         assert result == df_mock
 
     def test_read_streaming_options(self, reader, spark_mock, flights_source):
         """Streaming options should include maxFilesPerTrigger, cleanSource, etc."""
         df_mock = MagicMock()
-        spark_mock.readStream.format.return_value.load.return_value = df_mock
+        self._mock_stream_builder(spark_mock, df_mock)
 
         reader.read(flights_source)
 
         opts = spark_mock.readStream.format.return_value
         opts.option.assert_any_call("maxFilesPerTrigger", 1)
         opts.option.assert_any_call("cleanSource", "archive")
-        opts.option.assert_any_call("includeExistingFiles", "true")
+        opts.option.assert_any_call("includeExistingFiles", "false")
 
     def test_read_streaming_error(self, reader, spark_mock, flights_source):
         """Reader should raise ReaderError on streaming failure."""
@@ -72,7 +79,7 @@ class TestReader:
             source_location="s3://bucket/path/",
         )
         df_mock = MagicMock()
-        spark_mock.readStream.format.return_value.load.return_value = df_mock
+        self._mock_stream_builder(spark_mock, df_mock)
 
         result = reader.read(source)
         spark_mock.readStream.format.assert_called_once()
@@ -86,7 +93,7 @@ class TestReader:
             format="parquet",
         )
         df_mock = MagicMock()
-        spark_mock.readStream.format.return_value.load.return_value = df_mock
+        self._mock_stream_builder(spark_mock, df_mock)
 
         result = reader.read(source)
         spark_mock.readStream.format.assert_called_once()

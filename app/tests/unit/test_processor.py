@@ -1,29 +1,23 @@
 """
 Unit tests for processor.py — Processor pipeline orchestrator.
+
+The orchestration logic is tested with fully mocked collaborators so the
+tests run without a JVM. Real Spark/SQL semantics are covered by the
+Spark-based tests in test_data_quality.py and test_writer.py (which are
+skipped automatically when no JVM is available).
 """
 
 from __future__ import annotations
 
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 import pytest
-from pyspark.sql import SparkSession
-from pyspark.sql.types import LongType, StringType, StructField, StructType
 
 from src.dependencies.config import CdcConfig, PartitionKey, SchemaField, SourceConfig, TargetConfig
 from src.dependencies.processor import Processor, ProcessorError
 
 
 # ── Fixtures ─────────────────────────────────────────────────────────────────
-
-@pytest.fixture(scope="session")
-def spark():
-    return SparkSession.builder \
-        .master("local[2]") \
-        .appName("test-processor") \
-        .config("spark.sql.shuffle.partitions", "2") \
-        .getOrCreate()
-
 
 @pytest.fixture
 def flights_source():
@@ -57,14 +51,33 @@ def flights_target():
 
 
 @pytest.fixture
-def processor(spark):
-    return Processor(spark)
+def processor():
+    """Processor whose collaborators are all MagicMock objects (no JVM)."""
+    return Processor(MagicMock())
+
+
+@pytest.fixture
+def run_mocks(processor):
+    """Wire Processor.run's collaborators with configurable mocks."""
+    raw_df = MagicMock()
+    raw_df.isStreaming = False
+    valid_df = MagicMock()
+    rejects_df = MagicMock()
+
+    processor._reader.read = MagicMock(return_value=raw_df)
+    processor._data_quality.validate = MagicMock(return_value=(valid_df, rejects_df))
+    processor._writer.write = MagicMock()
+    processor._writer.write_rejects = MagicMock()
+    processor._etl_control.register = MagicMock()
+    processor._quality_metrics.save = MagicMock()
+
+    return {"raw": raw_df, "valid": valid_df, "rejects": rejects_df}
 
 
 # ── Tests ────────────────────────────────────────────────────────────────────
 
 class TestProcessor:
-    def test_init(self, spark, processor):
+    def test_init(self, processor):
         """Processor should initialise with all sub-components."""
         assert processor._reader is not None
         assert processor._data_quality is not None
@@ -73,27 +86,13 @@ class TestProcessor:
         assert processor._quality_metrics is not None
         assert processor._execution_id == ""
 
-    @patch("delta.tables.DeltaTable.forName")
-    def test_run_success(self, mock_delta, spark, processor, flights_source, flights_target):
+    def test_run_success(self, processor, flights_source, flights_target, run_mocks):
         """A successful pipeline run should complete without errors."""
-        # Mock DeltaTable.forName to avoid requiring Delta Lake binaries
-        mock_delta.return_value.alias.return_value.merge.return_value \
-            .whenNotMatchedInsertAll.return_value \
-            .whenMatchedUpdateAll.return_value.execute.return_value = None
+        run_mocks["raw"].count.return_value = 1
+        run_mocks["valid"].isEmpty.return_value = False
+        run_mocks["valid"].count.return_value = 1
+        run_mocks["rejects"].isEmpty.return_value = True
 
-        # Create minimal input data
-        schema = StructType([
-            StructField("flight_id", LongType(), True),
-            StructField("airline_code", StringType(), True),
-            StructField("status", StringType(), True),
-            StructField("dms_timestamp", StringType(), True),
-        ])
-        df = spark.createDataFrame([(1, "AA", "active", "2026-06-30")], schema)
-
-        # Mock reader to return our test DataFrame
-        processor._reader.read = MagicMock(return_value=df)
-
-        # Run pipeline
         processor.run(flights_source, flights_target)
 
         assert processor._execution_id != ""
@@ -101,48 +100,30 @@ class TestProcessor:
         assert processor._records_written == 1
         assert processor._records_rejected == 0
 
-    @patch("delta.tables.DeltaTable.forName")
-    def test_run_with_rejects(self, mock_delta, spark, processor, flights_source, flights_target):
+    def test_run_with_rejects(self, processor, flights_source, flights_target, run_mocks):
         """Pipeline should handle rows that fail validation."""
-        # Mock DeltaTable.forName to avoid requiring Delta Lake binaries
-        mock_delta.return_value.alias.return_value.merge.return_value \
-            .whenNotMatchedInsertAll.return_value \
-            .whenMatchedUpdateAll.return_value.execute.return_value = None
+        run_mocks["raw"].count.return_value = 1
+        run_mocks["valid"].isEmpty.return_value = True
+        run_mocks["rejects"].isEmpty.return_value = False
+        run_mocks["rejects"].count.return_value = 1
 
-        schema = StructType([
-            StructField("flight_id", LongType(), True),
-            StructField("airline_code", StringType(), True),
-            StructField("status", StringType(), True),
-            StructField("dms_timestamp", StringType(), True),
-        ])
-        # Invalid status
-        df = spark.createDataFrame([(1, "AA", "invalid_status", "2026-06-30")], schema)
-
-        processor._reader.read = MagicMock(return_value=df)
         processor.run(flights_source, flights_target)
 
         assert processor._records_read == 1
-        assert processor._records_rejected >= 1
+        assert processor._records_rejected == 1
         assert processor._records_written == 0
 
-    @patch("delta.tables.DeltaTable.forName")
-    def test_run_empty_dataframe(self, mock_delta, spark, processor, flights_source, flights_target):
+    def test_run_empty_dataframe(self, processor, flights_source, flights_target, run_mocks):
         """Empty input should be handled gracefully."""
-        # Mock DeltaTable.forName to avoid requiring Delta Lake binaries
-        mock_delta.return_value.alias.return_value.merge.return_value \
-            .whenNotMatchedInsertAll.return_value \
-            .whenMatchedUpdateAll.return_value.execute.return_value = None
+        run_mocks["raw"].count.return_value = 0
+        run_mocks["valid"].isEmpty.return_value = True
+        run_mocks["rejects"].isEmpty.return_value = True
 
-        schema = StructType([
-            StructField("flight_id", LongType(), True),
-        ])
-        df = spark.createDataFrame([], schema)
-
-        processor._reader.read = MagicMock(return_value=df)
-
-        # Should not raise
         processor.run(flights_source, flights_target)
+
         assert processor._records_read == 0
+        assert processor._records_written == 0
+        assert processor._records_rejected == 0
 
     def test_run_reader_error(self, processor, flights_source, flights_target):
         """Reader failure should raise ProcessorError."""
@@ -152,8 +133,12 @@ class TestProcessor:
 
     def test_is_streaming(self, processor):
         """_is_streaming should detect streaming DataFrames."""
-        from pyspark.sql import DataFrame
-        assert processor._is_streaming(MagicMock(spec=DataFrame)) is False
+        stream_df = MagicMock()
+        stream_df.isStreaming = True
+        batch_df = MagicMock()
+        batch_df.isStreaming = False
+        assert processor._is_streaming(stream_df) is True
+        assert processor._is_streaming(batch_df) is False
 
     def test_sub_components_created(self, processor):
         """All sub-components should be properly instantiated."""

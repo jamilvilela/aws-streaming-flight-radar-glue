@@ -1,29 +1,24 @@
 """
 Unit tests for writer.py — Writer class for Delta Lake writing.
+
+Early-return and wiring paths are tested with mocked DataFrames (no JVM
+required). The tests that exercise real Spark SQL (partition extraction and
+cod_unico generation) use the shared ``spark`` fixture, which skips cleanly
+when no JVM is available and runs fully in CI/Glue.
 """
 
 from __future__ import annotations
 
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 import pytest
-from pyspark.sql import SparkSession
 from pyspark.sql.types import LongType, StringType, StructField, StructType, TimestampType
 
 from src.dependencies.config import CdcConfig, PartitionKey, SchemaField, SourceConfig, TargetConfig
-from src.dependencies.writer import Writer, WriterError
+from src.dependencies.writer import Writer
 
 
 # ── Fixtures ─────────────────────────────────────────────────────────────────
-
-@pytest.fixture(scope="session")
-def spark():
-    return SparkSession.builder \
-        .master("local[2]") \
-        .appName("test-writer") \
-        .config("spark.sql.shuffle.partitions", "2") \
-        .getOrCreate()
-
 
 @pytest.fixture
 def flights_source():
@@ -57,8 +52,9 @@ def flights_target():
 
 
 @pytest.fixture
-def writer(spark):
-    return Writer(spark)
+def writer():
+    """Writer with a mocked SparkSession (no JVM required)."""
+    return Writer(MagicMock())
 
 
 # ── Tests ────────────────────────────────────────────────────────────────────
@@ -66,12 +62,13 @@ def writer(spark):
 class TestWriter:
     def test_write_empty(self, writer, flights_source, flights_target):
         """Writing an empty DataFrame should do nothing."""
-        schema = StructType([StructField("dummy", StringType(), True)])
-        df = writer._spark.createDataFrame([], schema)
+        df = MagicMock()
+        df.isEmpty.return_value = True
         # Should not raise
         writer.write(df, flights_target, flights_source)
+        df.isEmpty.assert_called_once()
 
-    def test_prepare_partitions(self, spark, writer, flights_source, flights_target):
+    def test_prepare_partitions(self, spark, flights_source, flights_target):
         """_prepare_with_partitions should add event_date from timestamp column."""
         from datetime import datetime
         row = (1, "AA", "active", datetime(2026, 6, 30, 10, 0, 0))
@@ -83,57 +80,50 @@ class TestWriter:
         ])
         df = spark.createDataFrame([row], schema)
 
-        result = writer._prepare_with_partitions(df, flights_source, flights_target)
+        result = Writer._prepare_with_partitions(df, flights_target, flights_source)
         columns = result.columns
         assert "event_date" in columns
 
         row_out = result.collect()[0]
         assert str(row_out.event_date) == "2026-06-30"
 
-    def test_prepare_partitions_skip_existing(self, spark, writer, flights_source, flights_target):
+    def test_prepare_partitions_skip_existing(self, writer, flights_source, flights_target):
         """If partition columns already exist, skip extraction."""
-        from datetime import date
-        rows = [(1, date(2026, 6, 30))]
-        schema = StructType([
-            StructField("flight_id", LongType(), True),
-            StructField("event_date", StringType(), True),
-        ])
-        df = spark.createDataFrame(rows, schema)
-        result = writer._prepare_with_partitions(df, flights_source, flights_target)
-        assert str(result.collect()[0].event_date) == "2026-06-30"
+        df = MagicMock()
+        df.columns = ["flight_id", "event_date"]
+        result = writer._prepare_with_partitions(df, flights_target, flights_source)
+        assert result is df
+        df.withColumn.assert_not_called()
 
     def test_write_rejects_empty(self, writer, flights_target):
         """Writing empty rejects should do nothing."""
-        schema = StructType([StructField("_reject_rule", StringType(), True)])
-        df = writer._spark.createDataFrame([], schema)
+        df = MagicMock()
+        df.isEmpty.return_value = True
         writer.write_rejects(df, flights_target)  # Should not raise
 
     def test_write_empty_delta(self, writer, flights_source, flights_target):
         """Writing empty DataFrame with Delta should not fail."""
-        schema = StructType([StructField("dummy", StringType(), True)])
-        df = writer._spark.createDataFrame([], schema)
+        df = MagicMock()
+        df.isEmpty.return_value = True
         # Should not raise (returns early for empty df)
         writer.write(df, flights_target, flights_source)
 
-    def test_generate_cod_unico_from_pk(self, writer, flights_target):
+    def test_generate_cod_unico_from_pk(self, spark, flights_target):
         """_generate_cod_unico should create cod_unico from PK columns."""
         rows = [(1, "AA")]
         schema = StructType([
             StructField("flight_id", LongType(), True),
             StructField("airline_code", StringType(), True),
         ])
-        df = writer._spark.createDataFrame(rows, schema)
-        result = writer._generate_cod_unico(df, flights_target)
+        df = spark.createDataFrame(rows, schema)
+        result = Writer._generate_cod_unico(df, flights_target)
         assert "cod_unico" in result.columns
         assert result.collect()[0].cod_unico == "1"
 
     def test_generate_cod_unico_skips_existing(self, writer, flights_target):
         """_generate_cod_unico should skip if cod_unico already exists."""
-        rows = [(1, "existing_val")]
-        schema = StructType([
-            StructField("flight_id", LongType(), True),
-            StructField("cod_unico", StringType(), True),
-        ])
-        df = writer._spark.createDataFrame(rows, schema)
+        df = MagicMock()
+        df.columns = ["flight_id", "cod_unico"]
         result = writer._generate_cod_unico(df, flights_target)
-        assert result.collect()[0].cod_unico == "existing_val"
+        assert result is df
+        df.withColumn.assert_not_called()

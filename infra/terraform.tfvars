@@ -2,7 +2,7 @@
 # Terraform Variable Values — Glue Streaming Mini-Batch
 #===============================================================================
 
-region = "us-east-1"
+region      = "us-east-1"
 environment = "prod"
 
 databases = {

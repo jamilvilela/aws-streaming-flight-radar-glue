@@ -92,7 +92,7 @@ class Writer:
             if op_col in df_to_write.columns:
                 builder = (builder
                            .whenNotMatchedInsert(
-                               condition=f"source.{op_col} <> 'D'",
+                               condition=f"COALESCE(source.{op_col}, 'I') <> 'D'",
                                values={c: f"source.{c}" for c in write_cols})
                            .whenMatchedDelete(condition=f"source.{op_col} = 'D'")
                            .whenMatchedUpdateAll())

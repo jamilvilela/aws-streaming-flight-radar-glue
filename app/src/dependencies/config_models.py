@@ -313,6 +313,8 @@ class Config:
     @staticmethod
     def _parse_s3_path(s3_path: str) -> tuple:
         """Parse ``s3://bucket/key`` into ``(bucket, key)``."""
+        if not s3_path.startswith("s3://"):
+            return None, None
         path = s3_path.replace("s3://", "")
         parts = path.split("/", 1)
         bucket = parts[0]

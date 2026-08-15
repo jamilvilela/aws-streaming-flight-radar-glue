@@ -44,13 +44,11 @@ class TestGlueCatalogTables:
         col_names = [c["Name"] for c in columns]
 
         expected_cols = [
-            "flight_id", "airline_code", "flight_number",
-            "aircraft_type", "aircraft_registration",
+            "flight_id", "flight_number", "airline_icao", "aircraft_icao24",
             "origin_airport", "destination_airport",
             "scheduled_departure", "scheduled_arrival",
             "actual_departure", "actual_arrival",
-            "status", "created_at", "updated_at",
-            "Op", "dms_timestamp",
+            "status", "created_at", "updated_at", "cod_unico",
         ]
         for col in expected_cols:
             assert col in col_names, f"Column '{col}' not found in flights table"

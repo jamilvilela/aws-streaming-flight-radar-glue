@@ -127,6 +127,87 @@ resource "aws_iam_role_policy" "glue_data_access" {
   })
 }
 
+# ── Glue Interactive Sessions — Session role permissions ─────────────────────
+# The role also executes AWS Glue interactive sessions (Jupyter notebooks that
+# test this pipeline). It needs the same interactive-sessions actions plus the
+# ability to tag sessions (%%tags) and write session logs to CloudWatch.
+
+resource "aws_iam_role_policy" "glue_interactive_sessions" {
+  name = "glue-interactive-sessions"
+  role = data.aws_iam_role.datalake_analytics.name
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect = "Allow"
+        Action = [
+          "glue:CreateSession",
+          "glue:GetSession",
+          "glue:ListSessions",
+          "glue:StopSession",
+          "glue:GetStatement",
+          "glue:ListStatements",
+          "glue:RunStatement",
+          "glue:TagResource",
+          "glue:UntagResource",
+        ]
+        Resource = [
+          "arn:aws:glue:${var.region}:${local.account_id}:catalog",
+          "arn:aws:glue:${var.region}:${local.account_id}:database/*",
+          "arn:aws:glue:${var.region}:${local.account_id}:table/*/*",
+          "arn:aws:glue:${var.region}:${local.account_id}:session/*",
+        ]
+      },
+      {
+        Effect = "Allow"
+        Action = [
+          "iam:PassRole",
+        ]
+        Resource = [
+          data.aws_iam_role.datalake_analytics.arn,
+        ]
+      },
+      {
+        Effect = "Allow"
+        Action = [
+          "logs:CreateLogGroup",
+          "logs:CreateLogStream",
+          "logs:PutLogEvents",
+        ]
+        Resource = [
+          "arn:aws:logs:${var.region}:${local.account_id}:log-group:/aws-glue/sessions/*:*",
+        ]
+      },
+    ]
+  })
+}
+
+# ── Interactive Sessions — Caller PassRole ───────────────────────────────────
+# The identity that starts a notebook (members of the datalake-admins group)
+# must be allowed to pass role-datalake-analytics to Glue when creating an
+# interactive session (glue:CreateSession requires iam:PassRole on the role).
+
+resource "aws_iam_group_policy" "interactive_sessions_passrole" {
+  name  = "glue-interactive-sessions-passrole"
+  group = "datalake-admins"
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect = "Allow"
+        Action = [
+          "iam:PassRole",
+        ]
+        Resource = [
+          data.aws_iam_role.datalake_analytics.arn,
+        ]
+      },
+    ]
+  })
+}
+
 # ── Lambda IAM Role ──────────────────────────────────────────────────────────
 # Role for the Lambda function that starts the Glue full-load batch job.
 

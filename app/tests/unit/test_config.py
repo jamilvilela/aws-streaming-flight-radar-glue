@@ -100,7 +100,7 @@ class TestTargetConfig:
 
     def test_defaults(self):
         cfg = TargetConfig()
-        assert cfg.format == "parquet"
+        assert cfg.format == "delta"
         assert cfg.compression == "snappy"
         assert cfg.catalog == {}
 
