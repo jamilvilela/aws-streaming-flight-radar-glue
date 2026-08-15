@@ -234,41 +234,6 @@ class DataQuality:
         valid = df.filter(~enum_condition)
         return valid, self._enrich_rejects(rejects, target, "enum_check")
 
-    def _remove_duplicates(
-        self,
-        df: DataFrame,
-        target: TargetConfig,
-        source: Optional[SourceConfig] = None,
-    ) -> Tuple[DataFrame, DataFrame]:
-        """Remove duplicate rows based on the primary key."""
-        from pyspark.sql import Window
-
-        if not target.primary_key:
-            return df, self._empty_rejects()
-
-        # Ensure PK columns exist
-        pk_cols = [c for c in target.primary_key if c in df.columns]
-        if not pk_cols:
-            return df, self._empty_rejects()
-
-        # Determine order column for dedup (keep latest)
-        order_col = F.monotonically_increasing_id().desc()
-        if source and source.cdc_config and source.cdc_config.timestamp_column in df.columns:
-            order_col = F.col(source.cdc_config.timestamp_column).desc()
-
-        window_spec = Window.partitionBy(*pk_cols).orderBy(order_col)
-
-        df_with_rank = df.withColumn("_dq_rank", F.row_number().over(window_spec))
-        duplicates = df_with_rank.filter(F.col("_dq_rank") > 1)
-        unique = df_with_rank.filter(F.col("_dq_rank") == 1).drop("_dq_rank")
-
-        if not duplicates.isEmpty():
-            rejects = duplicates.drop("_dq_rank")
-        else:
-            rejects = self._empty_rejects()
-
-        return unique, self._enrich_rejects(rejects, target, "duplicate_check")
-
     def _validate_timestamps(
         self,
         df: DataFrame,
@@ -276,12 +241,11 @@ class DataQuality:
         source: Optional[SourceConfig] = None,
     ) -> Tuple[DataFrame, DataFrame]:
         """
-        Validate timestamp columns.
+        Validate timestamp columns (reserved stage).
 
-        For string-typed timestamp columns, attempt to cast; reject failures.
+        Timestamp casting is already handled by ``_cast_types``, so this
+        stage currently passes all rows through as valid.
         """
-        # This is handled by _cast_types; additional validation here is optional.
-        # We pass through as valid — actual invalid timestamps are caught by _cast_types.
         return df, self._empty_rejects()
 
     # ── Reject helpers ───────────────────────────────────────────────

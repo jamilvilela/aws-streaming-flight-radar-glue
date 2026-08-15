@@ -78,8 +78,14 @@ Data replicated by DMS in the landing bucket needs to be processed before it's r
   - Glue Security Configuration (SSE-KMS for CloudWatch, SSE-KMS for S3)
   - Glue Connection type NETWORK for VPC access
   - Glue Job with Spark configs passed via `--conf` (AQE, shuffle, memory, compression)
-  - `data.archive_file.helpers` + `aws_s3_object.*` for declarative upload of Python scripts and JSON configs to S3
+  - `data.archive_file.helpers` + `aws_s3_object.*` for declarative upload of Python scripts, JSON configs and Lambda source to S3
+  - Glue artifacts deployed under `glue-jobs/flight-radar/` and Lambda under `lambdas/flight-radar/start_workflow/` in the workspace bucket
   - Glue Catalog databases and tables are **not created** — they already exist in the Data Lake
+
+### FR13 — Lambda Starter (outside `src`)
+- Lambda source kept in `app/lambdas/`, outside the `app/src/` Glue job source
+- Triggered by EventBridge when the DMS full load completes
+- Starts the full-load Glue workflow, with native Glue sequencing to start streaming afterward
 
 ### FR09 — Dynamic Spark Configs (--conf)
 - Spark configs defined in Terraform (`locals.spark_properties`) and converted to `--conf` string

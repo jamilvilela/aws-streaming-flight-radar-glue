@@ -59,7 +59,7 @@ The Terraform module in `infra/` manages all required AWS resources, organized b
 | `aws_iam_role.lambda_glue_starter` + policy | `iam.tf` | IAM role/policy for Lambda → Glue |
 | `aws_lambda_function.glue_starter` + permission | `lambda.tf` | Lambda that starts the full-load job |
 | `aws_cloudwatch_event_rule.full_load_complete` + target | `cloudwatch.tf` | EventBridge rule/target (DMS full load complete) |
-| `data.archive_file.helpers` + `aws_s3_object.*` | `s3.tf` | Creates helpers.zip and declarative upload of scripts + configs to S3 |
+| `data.archive_file.helpers` + `aws_s3_object.*` | `s3.tf` | Creates helpers.zip and declarative upload of main.py, config.json and Lambda source to the workspace bucket |
 
 > ⚠️ Glue Catalog databases and tables are not managed by this module — they already exist in the Data Lake.
 
@@ -85,7 +85,6 @@ Data sources: IAM role `role-datalake-analytics`, default VPC, subnets, security
 - `SourceConfig`: `source`, `order`, `source_location`, `cdc_source_location`, `format`, `cdc_config`, `checkpoint_location`, `target`
 - `TargetConfig`: `catalog` (database, table), `location`, `rejected_location`, `format`, `compression`, `partition_keys`, `schema`, `primary_key`, `enum_columns`, `cod_unico_expr`
 - `Config`: `sources` (list sorted by `order`), methods `from_file()` (local) and `from_s3()` (S3)
-- Re-exported via `config/__init__.py` for backward compatibility
 
 ### 3. `Reader` — Data Reading (streaming + batch)
 - Reads Parquet files from S3 (DMS CDC) in **streaming** or **batch** mode
@@ -131,6 +130,25 @@ Data sources: IAM role `role-datalake-analytics`, default VPC, subnets, security
 - Method `run(source, target)` executes 6-stage pipeline: Read → Validate → Write Rejects → Write (Delta MERGE) → Register → Metrics
 - Delegates `_register_execution` to `EtlControl` and `_save_quality_metrics` to `QualityMetrics`
 
+### 9. Lambda — `app/lambdas/start_glue_job.py`
+- Kept **outside** `app/src`, separate from the Glue job source
+- Triggered by EventBridge when DMS completes the full load
+- Starts the full-load Glue workflow via `glue.start_workflow_run()`
+- Native Glue sequencing (on-demand + conditional triggers) starts streaming after the batch succeeds — no polling in the Lambda
+
+## Deployment Structure (Workspace Bucket)
+
+```
+lakehouse-workspace-{account_id}/
+├── glue-jobs/flight-radar/src/
+│   ├── main.py
+│   └── dependencies/
+│       ├── helpers.zip
+│       └── config/config.json
+└── lambdas/flight-radar/start_workflow/
+    └── start_glue_job.py
+```
+
 ## Spark Optimization Configs
 
 Spark configs are defined in `infra/locals.tf` in the `spark_properties` map:
@@ -169,7 +187,7 @@ Spark configs are defined in `infra/locals.tf` in the `spark_properties` map:
 
 | Parameter | Description | Example |
 |-----------|-----------|---------|
-| `--config_s3_path` | S3 path to unified config.json (all tables) | `s3://.../config/config.json` |
+| `--config_s3_path` | S3 path to unified config.json (all tables) | `s3://.../glue-jobs/flight-radar/src/dependencies/config/config.json` |
 | `--mode` | Execution mode: `batch` or `streaming` | `batch` |
 | `--conf` | Dynamic Spark configs (key=val key=val ...) | `spark.sql.shuffle.partitions=200 ...` |
 

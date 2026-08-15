@@ -20,9 +20,8 @@ app/
 │   ├── main.py              # Glue Job entry point (argparse, dynamic --conf, --mode batch|streaming)
 │   ├── __init__.py
 │   └── dependencies/        # Support modules (packaged as helpers.zip)
-│       ├── __init__.py
-│       ├── config/          # Configuration dataclasses + JSONs (sub-package)
-│       │   ├── __init__.py  #   → Config, SourceConfig, TargetConfig, etc.
+│       ├── config_models.py # Dataclasses (Config, SourceConfig, TargetConfig, etc.)
+│       ├── config/          # Configuration sub-package (holds JSON files)
 │       │   └── config.json  #   → Unified configuration (all tables with source + target)
 │       ├── reader.py        # Streaming and batch data reader (Reader)
 │       ├── data_quality.py  # Validation and quality (DataQuality) — 4 stages
@@ -31,6 +30,8 @@ app/
 │       ├── etl_control.py   # Execution log in etl_control
 │       ├── quality_metrics.py # Quality metrics in data_quality_metrics
 │       └── aws_helper.py    # Reusable boto3 utility (AwsHelper)
+├── lambdas/                  # Lambda source code (deployed separately from Glue)
+│   └── start_glue_job.py    # Lambda that starts the full-load Glue workflow
 └── tests/                    # Unit and integration tests
     ├── __init__.py
     ├── conftest.py            # Adds app/ to sys.path
@@ -62,7 +63,7 @@ infra/                     # Complete Terraform module
 ├── versions.tf           # Provider versions
 └── terraform.tfvars      # Default variable values
 scripts/
-├── setup-env.sh          # AWS environment setup via Terraform (upload via null_resource)
+├── setup-env.sh          # AWS environment setup via Terraform (artifact upload via aws_s3_object)
 └── rollback-setup.sh     # AWS environment rollback (no S3 cleanup)
 docs-sdd/
 ├── skill.md              # Skill document (updated v3)
@@ -76,6 +77,32 @@ docs-sdd/
 ├── structure_source_directory.md # Landing bucket structure
 └── feature_skill.txt     # Initial feature specification
 ```
+
+## Deployment Structure (S3 Workspace Bucket)
+
+The workspace bucket `lakehouse-workspace-{account_id}` mirrors the project
+layout. Glue artifacts live under `glue-jobs/flight-radar/` and Lambda code
+under `lambdas/flight-radar/start_workflow/`:
+
+```
+lakehouse-workspace-{account_id}/
+├── glue-jobs/
+│   └── flight-radar/
+│       └── src/
+│           ├── main.py                          # Glue job script
+│           └── dependencies/
+│               ├── helpers.zip                  # Support modules (archive of dependencies/)
+│               └── config/
+│                   └── config.json              # Unified configuration (account_id resolved)
+└── lambdas/
+    └── flight-radar/
+        └── start_workflow/
+            └── start_glue_job.py                # Lambda source
+```
+
+The `glue_job_name` value `glue-flight-radar-stream-cdc` drives the Glue job
+names, triggers, and IAM resources. The script and config paths are resolved
+in `infra/locals.tf` as defaults pointing to the paths above.
 
 ## Configuration (JSON)
 
@@ -146,8 +173,6 @@ docs-sdd/
 | `TargetConfig` | catalog, location, rejected_location, format, compression, partition_keys, schema, primary_key, enum_columns, cod_unico_expr |
 | `Config` | `_sources: List[SourceConfig]`, `source` (property → first), `sources` (property → all), `get_source(name)` (method), `from_files()`, `from_s3()`, `to_dict()` |
 
-> **v4 Change:** `Config` now supports multiple sources. The `source` (singular) field was replaced by `_sources` (list). The `source` property maintains backward compatibility by returning the first source. The `get_source(name)` method allows selecting a source by name.
-
 ### `reader.py` — Reader Class (streaming + batch)
 - **Streaming:** `spark.readStream.format("parquet")` with `maxFilesPerTrigger=1`, `cleanSource=archive`, `includeExistingFiles=true`
 - **Batch:** `spark.read.format("parquet").load(source.source_location)` — reads all existing files at once
@@ -170,7 +195,7 @@ docs-sdd/
 | 3 | `_check_enums` | Validates against allowed list in `enum_columns` |
 | 4 | `_validate_timestamps` | Pass-through (reserved) |
 
-> **Note:** The `_remove_duplicates` stage was removed — uniqueness is guaranteed by Delta MERGE on write (Writer).
+> **Note:** Uniqueness is guaranteed by the Delta MERGE on write (Writer).
 
 ### `writer.py` — Writer Class
 - **Delta Lake** write with `DeltaTable.forName()` via Glue Catalog
@@ -198,8 +223,6 @@ docs-sdd/
   4. Write valid data via `Writer` (Delta MERGE by PK)
   5. Register execution via `EtlControl`
   6. Save quality metrics via `QualityMetrics`
-
-> **v4 Change:** The `run()` method accepts `mode` ("streaming" \| "batch") and optional `dataframe`. In batch mode with a pre-read dataframe, the read step is skipped.
 
 ### `main.py` — Entry Point (dual mode)
 - Argument parsing via `argparse`: `--config_s3_path`, `--conf`, `--mode` (batch\|streaming)
@@ -229,7 +252,7 @@ docs-sdd/
 | `aws_lambda_permission.eventbridge_invoke_glue_starter` | `lambda.tf` | Lambda Permission | Allows EventBridge to invoke the Lambda |
 | `aws_cloudwatch_event_rule.full_load_complete` | `cloudwatch.tf` | EventBridge Rule | DMS full load completed event (source=aws.dms) |
 | `aws_cloudwatch_event_target.start_glue_batch` | `cloudwatch.tf` | EventBridge Target | Triggers the Lambda via InvokeFunction |
-| `data.archive_file.helpers` + `aws_s3_object.*` | `s3.tf` | Archive + S3 Objects | Declarative — helpers.zip + main.py + JSON configs |
+| `data.archive_file.helpers` + `aws_s3_object.*` | `s3.tf` | Archive + S3 Objects | Declarative — uploads main.py, helpers.zip, config.json and Lambda source to the workspace bucket |
 
 ### Diagrama de Infraestrutura (Mermaid)
 
@@ -290,7 +313,7 @@ sequenceDiagram
 |------|---------|--------|
 | Phase 1 | Directory structure, config JSON | ✅ Complete |
 | Phase 2 | 8 Python module implementations | ✅ Complete |
-| Phase 3 | Terraform + S3 upload via null_resource | ✅ Complete |
+| Phase 3 | Terraform + S3 upload via `aws_s3_object` resources | ✅ Complete |
 | Phase 4 | Unit + integration tests | ✅ Complete |
 | Phase 5 | setup-env.sh + rollback-setup.sh scripts | ✅ Complete |
 
@@ -298,11 +321,12 @@ sequenceDiagram
 
 | # | Deliverable | Status |
 |---|-----------|--------|
-| 1 | `app/src/main.py` + 7 modules in `app/src/dependencies/` (config/ is sub-package) | ✅ |
-| 2 | `app/src/dependencies/config/config.json` (unified config with embedded target) | ✅ |
-| 3 | `infra/` complete Terraform module (Glue Job, KMS, Security Config, Connection, Upload) | ✅ |
-| 4 | `tests/unit/` (100% coverage) | ✅ |
-| 5 | `tests/integration/` (boto3) | ✅ |
-| 6 | `scripts/setup-env.sh` + `rollback-setup.sh` (no S3 upload in scripts) | ✅ |
-| 7 | Pipeline validated and in production | ⏳ Pending |
-| 8 | `docs-sdd/` synced with current code | ✅ |
+| 1 | `app/src/main.py` + support modules in `app/src/dependencies/` (config/ holds JSON) | ✅ |
+| 2 | `app/lambdas/start_glue_job.py` (Lambda source, outside src) | ✅ |
+| 3 | `app/src/dependencies/config/config.json` (unified config with embedded target) | ✅ |
+| 4 | `infra/` complete Terraform module (Glue Job, KMS, Security Config, Connection, Upload) | ✅ |
+| 5 | `tests/unit/` (100% coverage) | ✅ |
+| 6 | `tests/integration/` (boto3) | ✅ |
+| 7 | `scripts/setup-env.sh` + `rollback-setup.sh` (no S3 upload in scripts) | ✅ |
+| 8 | Pipeline validated and in production | ⏳ Pending |
+| 9 | `docs-sdd/` synced with current code | ✅ |

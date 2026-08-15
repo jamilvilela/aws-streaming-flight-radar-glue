@@ -1,8 +1,7 @@
 """
 config_models.py — Dataclasses for multi-table configuration.
 
-Replaces the old config/__init__.py with a single-file approach.
-Each source now carries its own target definition, order, and CDC path,
+Each source carries its own target definition, order, and CDC path,
 allowing one Glue job to process multiple tables sequentially (batch)
 or concurrently (streaming).
 """
@@ -66,8 +65,9 @@ class TargetConfig:
     """
     Configuration for the target Data Lake table.
 
-    Mirrors the old target structure but can be embedded
-    inside each source entry in config.json.
+    Embedded inside each source entry in config.json, it holds the
+    catalog reference, storage location, schema, partition keys and
+    primary key used to write to the raw layer.
     """
 
     catalog: Dict[str, str] = field(default_factory=dict)
@@ -109,7 +109,7 @@ class SourceConfig:
     """
     Configuration for a single data source (DMS table).
 
-    Each source now includes:
+    Includes:
     - ``order`` for batch sequencing
     - ``cdc_source_location`` for streaming reads (separate CDC prefix)
     - ``target`` embedded (schema, partitions, PK) for independent writing
@@ -158,7 +158,7 @@ class Config:
 
     @property
     def source(self) -> SourceConfig:
-        """Return the first source (backward compatibility)."""
+        """Return the first configured source."""
         return self._sources[0] if self._sources else SourceConfig()
 
     @property
@@ -168,7 +168,7 @@ class Config:
 
     @property
     def target(self) -> TargetConfig:
-        """Return the first source's target (backward compatibility)."""
+        """Return the first source's target."""
         return self.source.target
 
     def get_source(self, name: str) -> Optional[SourceConfig]:
@@ -193,8 +193,8 @@ class Config:
         """
         Build Config from a raw dict / list (parsed JSON).
 
-        Accepts the same formats as the old ``from_dicts(source_data, target_data)``
-        but now takes a single argument — the whole config list.
+        Accepts a list of source dicts, a single source dict, or a dict
+        with a ``sources`` key.
         """
         sources = cls._parse_sources(data)
         return cls(_sources=sources)
@@ -233,7 +233,7 @@ class Config:
 
         Accepts:
         - A list of dicts (standard format)
-        - A single dict (backward compatibility)
+        - A single dict
         - A dict with 'sources' key
         """
         items: List[dict] = []

@@ -89,6 +89,9 @@ The Glue Job processes these files in **mini-batches** (60s), ensuring:
 | `QualityMetrics` | `quality_metrics.py` | Save metrics to `data_quality_metrics` |
 | `Processor` | `processor.py` | Orchestrate full pipeline (delegates EtlControl/QualityMetrics) |
 | `main.py` | `main.py` | Entry point: init Spark 4.0 / Glue 5.1, parse args via argparse, run |
+| Lambda handler | `app/lambdas/start_glue_job.py` | Starts the full-load Glue workflow (outside `src`) |
+
+> All support modules live in `app/src/dependencies/`; the Lambda lives separately in `app/lambdas/`.
 
 ### 4.2. Infrastructure (Terraform)
 
@@ -103,7 +106,7 @@ The Glue Job processes these files in **mini-batches** (60s), ensuring:
 | IAM Role + Policy | `iam.tf` | Lambda → Glue (`glue:StartJobRun`) |
 | Lambda Function | `lambda.tf` | Starts the full-load Glue job (EventBridge target) |
 | EventBridge Rule + Target | `cloudwatch.tf` | DMS full load complete → Lambda |
-| Archive + S3 Objects | `s3.tf` | Upload of scripts, helpers.zip and config.json |
+| Archive + S3 Objects | `s3.tf` | Upload of main.py, helpers.zip, config.json and Lambda source to the workspace bucket |
 
 > ⚠️ Glue Catalog databases and tables are not created by Terraform — they already exist in the Data Lake. Names are only for code reference.
 
@@ -194,6 +197,7 @@ Suggested schema (enriched):
 | `scripts/setup-env.sh` | Bash script for AWS environment setup via Terraform (points to `infra/`) |
 | `scripts/rollback-setup.sh` | Bash script for AWS environment rollback |
 | `app/src/dependencies/config/config.json` | Unified configuration (JSON) |
+| `app/lambdas/start_glue_job.py` | Lambda that starts the full-load Glue workflow |
 
 ## 8. Acceptance Criteria
 
@@ -224,4 +228,16 @@ Suggested schema (enriched):
 - Default VPC com subnets privadas e security group default
 - KMS key para criptografia (criada pelo módulo `infra/`)
 - Glue Catalog database `db_raw` (já existe no Data Lake, não é criado pelo módulo `infra/`)
-- Tabelas Glue Catalog em `scripts/*.tf`
+
+### Deployment Structure (Workspace Bucket)
+
+```
+lakehouse-workspace-{account_id}/
+├── glue-jobs/flight-radar/src/
+│   ├── main.py
+│   └── dependencies/
+│       ├── helpers.zip
+│       └── config/config.json
+└── lambdas/flight-radar/start_workflow/
+    └── start_glue_job.py
+```

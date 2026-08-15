@@ -6,7 +6,7 @@
 
 data "archive_file" "lambda_glue_starter" {
   type        = "zip"
-  source_file = "${path.module}/../app/src/lambdas/start_glue_job.py"
+  source_file = "${path.module}/../app/aws-lambda/start_workflow/start_glue_job.py"
   output_path = "${path.module}/../.terraform/lambda_glue_starter.zip"
 }
 

@@ -35,7 +35,7 @@ in app/src/dependencies/{file_name}.py with the following requirements:
 - AWS Glue Job definitions (Glue 5.1)
 - Glue Security Configuration and KMS keys
 - Glue Connection type NETWORK (VPC)
-- S3 Buckets — artifact upload via `null_resource`
+- S3 Buckets — artifact upload via `aws_s3_object` resources
 - IAM roles and policies (role-datalake-analytics)
 - Bash setup and rollback scripts (no artifact upload in scripts)
 
@@ -56,6 +56,7 @@ in app/src/dependencies/{file_name}.py with the following requirements:
 - **config.json**: unified configuration (list of tables, each with embedded source + target)
 - Clear separation between connection config and destination config
 - S3 locations (source, target, rejected, checkpoint)
+- Deployed to `glue-jobs/flight-radar/src/dependencies/config/config.json`
 
 ## Agent: `test-builder`
 **Purpose:** Implement unit and integration tests
@@ -67,6 +68,16 @@ in app/src/dependencies/{file_name}.py with the following requirements:
 - Integration tests with real boto3
 - Validation of data written to S3 and Glue Catalog
 - Tests for EtlControl and QualityMetrics
+
+## Agent: `lambda-starter`
+**Purpose:** Implement and maintain the Lambda that starts the full-load Glue workflow
+
+**Skills:**
+- Python 3.9 Lambda handler triggered by EventBridge
+- `glue.start_workflow_run()` to start the full-load workflow
+- Native Glue sequencing (on-demand + conditional triggers) — no polling
+- Source kept in `app/lambdas/` (outside `app/src/`)
+- Deployed via `infra/lambda.tf` and uploaded to `lambdas/flight-radar/start_workflow/`
 
 ## How to use
 

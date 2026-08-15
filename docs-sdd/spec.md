@@ -68,7 +68,7 @@ flowchart TD
 
 ## 3. Components
 
-### 3.1. Config — `app/src/dependencies/config/` (sub-package)
+### 3.1. Config — `app/src/dependencies/config_models.py` (+ `config/` JSON)
 
 **Dataclasses:**
 - `SchemaField(name, type, comment, nullable)`
@@ -143,6 +143,12 @@ flowchart TD
 - `_parse_conf()` converts string "key=val key=val" to dict
 - `_init_spark()` applies configs dynamically
 
+### 3.10. Lambda — `app/lambdas/start_glue_job.py`
+- Lives **outside** `app/src` (kept separate from the Glue job source)
+- Triggered by EventBridge when the DMS full load completes
+- Starts the full-load Glue workflow via `glue.start_workflow_run()`
+- The workflow uses native Glue sequencing (on-demand + conditional triggers) to start streaming after the batch succeeds, avoiding polling and concurrent writes
+
 ## 4. Infrastructure (Terraform)
 
 ### Resources (organizados por serviço em `infra/`)
@@ -163,9 +169,25 @@ flowchart TD
 | `aws_cloudwatch_event_rule.full_load_complete` | `cloudwatch.tf` | EventBridge Rule | DMS full load completed event (source=aws.dms) |
 | `aws_cloudwatch_event_target.start_glue_batch` | `cloudwatch.tf` | EventBridge Target | Triggers the Lambda via InvokeFunction |
 | `data.archive_file.helpers` | `s3.tf` | Archive Data | Creates helpers.zip from `app/src/dependencies/` |
-| `aws_s3_object.main_py` | `s3.tf` | S3 Object | Uploads `main.py` to scripts path |
-| `aws_s3_object.helpers_zip` | `s3.tf` | S3 Object | Uploads `helpers.zip` to dependencies path |
-| `aws_s3_object.config_json` | `s3.tf` | S3 Object | Uploads `config.json` (with `{account_id}` resolved) |
+| `aws_s3_object.main_py` | `s3.tf` | S3 Object | Uploads `main.py` to `glue-jobs/flight-radar/src/` |
+| `aws_s3_object.helpers_zip` | `s3.tf` | S3 Object | Uploads `helpers.zip` to `glue-jobs/flight-radar/src/dependencies/` |
+| `aws_s3_object.config_json` | `s3.tf` | S3 Object | Uploads `config.json` (with `{account_id}` resolved) to `glue-jobs/flight-radar/src/dependencies/config/` |
+| `aws_s3_object.lambda_start_glue_job` | `s3.tf` | S3 Object | Uploads Lambda source to `lambdas/flight-radar/start_workflow/` |
+
+### Deployment Structure (Workspace Bucket)
+
+Artifacts are published to the workspace bucket mirroring the project layout:
+
+```
+lakehouse-workspace-{account_id}/
+├── glue-jobs/flight-radar/src/
+│   ├── main.py
+│   └── dependencies/
+│       ├── helpers.zip
+│       └── config/config.json
+└── lambdas/flight-radar/start_workflow/
+    └── start_glue_job.py
+```
 
 ### Dynamic Spark Configs (`locals.tf → spark_conf`)
 - `spark.sql.adaptive.enabled` = true
@@ -232,6 +254,8 @@ flowchart TD
 - **Bookmarks**: not used (uses `cleanSource=archive`)
 - **Separate S3 prefixes**: DMS `CdcPath` writes CDC to a distinct prefix to avoid reprocessing
 - **Two job definitions**: batch (G.1X, 4 workers) and streaming (G.0.25X, 1 worker) — share the same script
+- **Deploy layout**: Glue artifacts under `glue-jobs/flight-radar/` and Lambda under `lambdas/flight-radar/start_workflow/` in the workspace bucket
+- **Lambda location**: source in `app/lambdas/`, outside `app/src/`
 
 ## 9. Event Flow
 
@@ -263,15 +287,13 @@ sequenceDiagram
 | 3 | `_check_enums` | Validates values against allowed list in `enum_columns` |
 | 4 | `_validate_timestamps` | Validates timestamps (current pass-through) |
 
-> **Note:** The `_remove_duplicates` stage was removed — uniqueness is guaranteed by Delta MERGE on write (Writer).
-
 ## 12. Tests
 
 ### Unit (`tests/unit/`)
 - `test_config.py`: from_files, from_s3, to_dict, invalid JSON
 - `test_reader.py`: streaming read, checkpoint config, schema
-- `test_data_quality.py`: 5 stages, rejects, types, enums, nulls, dedup
-- `test_writer.py`: Parquet write, partitions, compaction, rejects
+- `test_data_quality.py`: 4 stages, rejects, types, enums, nulls
+- `test_writer.py`: Delta write, partitions, rejects
 - `test_processor.py`: full mocked pipeline
 
 ### Integration (`tests/integration/`)
