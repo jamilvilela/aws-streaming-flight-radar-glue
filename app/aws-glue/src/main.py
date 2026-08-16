@@ -18,8 +18,8 @@ from typing import List, Optional
 
 from pyspark.sql import SparkSession
 
-from src.processor import Processor
-from src.config import Config, SourceConfig, TargetConfig
+from src.dependencies.processor import Processor
+from src.dependencies.config import Config, SourceConfig, TargetConfig
 
 logger = logging.getLogger(__name__)
 logging.basicConfig(

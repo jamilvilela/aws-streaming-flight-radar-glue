@@ -84,7 +84,7 @@ lakehouse-workspace-{account_id}/
 │           └── src/
 │               ├── main.py                          # Glue job script
 │               └── dependencies/
-│                   ├── helpers.zip                  # Support modules (archive of dependencies/)
+│                   ├── helpers.zip                  # Support modules (archive of src/)
 │                   └── config/
 │                       └── config.json              # Unified configuration (account_id resolved)
 └── aws-lambda/

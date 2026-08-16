@@ -3,13 +3,15 @@
 #===============================================================================
 
 # ── Archive (helpers.zip) ──────────────────────────────────────────────────
-# Creates a zip of the dependencies directory using hashicorp/archive provider.
+# Creates a zip of the Glue source package using hashicorp/archive provider.
+# The zip root contains the `src` package (src/__init__.py + src/dependencies/...)
+# so runtime imports resolve as `src.dependencies.<module>`.
 
 data "archive_file" "helpers" {
   type        = "zip"
-  source_dir  = "${path.module}/../app/aws-glue/src/dependencies/"
+  source_dir  = "${path.module}/../app/aws-glue/"
   output_path = "${path.module}/../.terraform/helpers.zip"
-  excludes    = ["__pycache__", "*.pyc"]
+  excludes    = ["tests", "tests/**", "__pycache__", "**/__pycache__", "*.pyc", "**/*.pyc", "src/main.py"]
 }
 
 # ── S3 Artifact Upload ─────────────────────────────────────────────────────

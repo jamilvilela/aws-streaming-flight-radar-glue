@@ -168,7 +168,7 @@ flowchart TD
 | `aws_lambda_permission.eventbridge_invoke_glue_starter` | `lambda.tf` | Lambda Permission | Allows EventBridge to invoke the Lambda |
 | `aws_cloudwatch_event_rule.full_load_complete` | `cloudwatch.tf` | EventBridge Rule | DMS full load completed event (source=aws.dms) |
 | `aws_cloudwatch_event_target.start_glue_batch` | `cloudwatch.tf` | EventBridge Target | Triggers the Lambda via InvokeFunction |
-| `data.archive_file.helpers` | `s3.tf` | Archive Data | Creates helpers.zip from `app/aws-glue/src/dependencies/` |
+| `data.archive_file.helpers` | `s3.tf` | Archive Data | Creates helpers.zip from `app/aws-glue/` (contains the `src` package) |
 | `aws_s3_object.main_py` | `s3.tf` | S3 Object | Uploads `main.py` to `aws-glue/jobs/flight-radar/src/` |
 | `aws_s3_object.helpers_zip` | `s3.tf` | S3 Object | Uploads `helpers.zip` to `aws-glue/jobs/flight-radar/src/dependencies/` |
 | `aws_s3_object.config_json` | `s3.tf` | S3 Object | Uploads `config.json` (with `{account_id}` resolved) to `aws-glue/jobs/flight-radar/src/dependencies/config/` |
