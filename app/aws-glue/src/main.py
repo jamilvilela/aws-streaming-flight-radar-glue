@@ -29,9 +29,6 @@ logging.basicConfig(
 )
 
 
-# ── Argument parsing ───────────────────────────────────────────────
-
-
 def _parse_args(argv: Optional[list[str]] = None) -> argparse.Namespace:
     """Parse command line arguments."""
     parser = argparse.ArgumentParser(
@@ -54,9 +51,6 @@ def _parse_args(argv: Optional[list[str]] = None) -> argparse.Namespace:
         help="Execution mode: 'batch' processes all tables sequentially, 'streaming' starts concurrent queries (default: streaming)",
     )
     return parser.parse_args(argv)
-
-
-# ── Spark configs parsed from --conf ───────────────────────────────
 
 
 def _parse_conf(conf_str: str) -> dict[str, str]:
@@ -99,7 +93,6 @@ def main() -> None:
     """Application entry point."""
     logger.info("Initialising Glue Job — multi-table batch / streaming")
 
-    # 1. Parse arguments
     try:
         args = _parse_args()
     except Exception as exc:
@@ -112,13 +105,11 @@ def main() -> None:
         args.mode,
     )
 
-    # 2. Parse Spark configs from --conf and initialise Spark dynamically
     spark_configs = _parse_conf(args.conf)
     logger.info("Parsed %d Spark configs from --conf", len(spark_configs))
     spark = _init_spark(spark_configs)
     logger.info("Spark session created — version %s", spark.version)
 
-    # 3. Load configuration (single config.json with all tables)
     try:
         config = Config.from_s3(args.config_s3_path)
         source_list = config.sources  # sorted by order
@@ -135,10 +126,8 @@ def main() -> None:
         logger.error("Failed to load configuration: %s", exc)
         sys.exit(1)
 
-    # 4. Create pipeline processor
     processor = Processor(spark)
 
-    # 5. Run in the requested mode
     if args.mode == "batch":
         _run_batch(spark, processor, source_list)
     else:

@@ -16,9 +16,7 @@ from typing import Any, Dict, List, Optional
 logger = logging.getLogger(__name__)
 
 
-# ──────────────────────────────────────────────────────────────────────
 # Dataclasses
-# ──────────────────────────────────────────────────────────────────────
 
 
 @dataclass
@@ -137,9 +135,7 @@ class SourceConfig:
         }
 
 
-# ──────────────────────────────────────────────────────────────────────
 # Top-Level Config
-# ──────────────────────────────────────────────────────────────────────
 
 
 @dataclass
@@ -154,7 +150,6 @@ class Config:
 
     _sources: List[SourceConfig] = field(default_factory=list)
 
-    # ── Properties ──────────────────────────────────────────────────
 
     @property
     def source(self) -> SourceConfig:
@@ -186,7 +181,6 @@ class Config:
                 return s
         return None
 
-    # ── Factory methods ──────────────────────────────────────────────
 
     @classmethod
     def from_dicts(cls, data: Any) -> "Config":
@@ -224,7 +218,6 @@ class Config:
         data = json.loads(obj["Body"].read().decode("utf-8"))
         return cls.from_dicts(data)
 
-    # ── Internal helpers ─────────────────────────────────────────────
 
     @staticmethod
     def _parse_sources(data: Any) -> List[SourceConfig]:

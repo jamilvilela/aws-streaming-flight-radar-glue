@@ -1,19 +1,20 @@
 ---
 name: glue-streaming-agents
-description: Specialized agents for implementing the Glue Job streaming mini-batch DMS CDC (tbl_opensky_flights)
+description: Specialized agents for implementing the Glue Job streaming mini-batch DMS CDC (flight_radar tables)
 ---
 
-# Agents — Glue Streaming Mini-Batch DMS CDC (tbl_opensky_flights)
+# Agents — Glue Streaming Mini-Batch DMS CDC
 
 ## Agent: `glue-job-builder`
 **Purpose:** Implement Glue Job PySpark code (main.py, processor, config, reader, data_quality, writer, etl_control, quality_metrics)
 
 **Skills:**
-- PySpark 4.0 / AWS Glue 5.1 (pure Spark — no GlueContext, DynamicFrame or Job)
-- Streaming reading with `spark.readStream` and `forEachBatch`
+- PySpark 4.0 / AWS Glue 5.0 (pure Spark — no GlueContext, DynamicFrame or Job)
+- Streaming reading with `spark.readStream` and `trigger(processingTime=...)`
 - S3 checkpointing with `cleanSource=archive` (no job bookmarks)
 - DataFrame API: schema validation, type casting
-- **Delta Lake**: `DeltaTable.forName()` via Glue Catalog, MERGE by PK, partitioning
+- **Delta Lake**: `DeltaTable.forPath()` resolved by location (physical table), MERGE by PK, partitioning
+- Bootstrap of the Delta table on first write; MERGE on subsequent writes
 - Partitioned write to Delta Lake with MERGE (cross-batch dedup)
 - Python dataclasses with type hints (SourceConfig, TargetConfig)
 - Spark optimization configs (AQE, shuffle, off-heap, dynamic allocation, Delta auto-optimize)
@@ -32,15 +33,15 @@ in app/aws-glue/src/dependencies/{file_name}.py with the following requirements:
 **Purpose:** Create and maintain AWS infrastructure resources via Terraform
 
 **Skills:**
-- AWS Glue Job definitions (Glue 5.1)
+- AWS Glue Job definitions (Glue 5.0, Python 3.9)
 - Glue Security Configuration and KMS keys
 - Glue Connection type NETWORK (VPC)
-- S3 Buckets — artifact upload via `aws_s3_object` resources
-- IAM roles and policies (role-datalake-analytics)
-- Bash setup and rollback scripts (no artifact upload in scripts)
+- S3 Buckets — artifact upload via `aws_s3_object` resources (declarative, no upload in scripts)
+- IAM roles and policies (role-datalake-analytics, lambda_glue_starter)
+- `ci-cd/deploy.sh` and `ci-cd/rollback.sh` scripts (setup and rollback only)
 
 ## Agent: `data-quality-spec`
-**Purpose:** Define and implement data quality rules for tbl_opensky_flights
+**Purpose:** Define and implement data quality rules for the flight_radar tables
 
 **Skills:**
 - Schema validation (types, nullability, constraints)
@@ -53,9 +54,9 @@ in app/aws-glue/src/dependencies/{file_name}.py with the following requirements:
 **Purpose:** Design and validate JSON configuration files (single file)
 
 **Skills:**
-- **config.json**: unified configuration (list of tables, each with embedded source + target)
+- **config.json**: unified configuration (list of 8 tables, each with embedded source + target)
 - Clear separation between connection config and destination config
-- S3 locations (source, target, rejected, checkpoint)
+- S3 locations (source, cdc_source, target, rejected, checkpoint)
 - Deployed to `aws-glue/jobs/flight-radar/src/dependencies/config/config.json`
 
 ## Agent: `test-builder`
@@ -84,7 +85,7 @@ in app/aws-glue/src/dependencies/{file_name}.py with the following requirements:
 ### To generate code for a specific class:
 ```
 @glue-job-builder Create the Reader class in app/aws-glue/src/dependencies/reader.py 
-that reads Parquet data from S3 in pure streaming (no Glue, no batch, no bookmarks).
+that reads Parquet data from S3 in streaming mode (no Glue APIs, no job bookmarks).
 ```
 
 ### To create infrastructure:
@@ -95,14 +96,14 @@ with worker_type G.1X, glue_version 5.0, and script_location in the workspace bu
 
 ### To validate quality:
 ```
-@data-quality-spec Define the quality rules for the tbl_opensky_flights table 
-with a 5-stage pipeline.
+@data-quality-spec Define the quality rules for the tbl_flights table 
+with the 4-stage pipeline.
 ```
 
 ### To configure source:
 ```
 @config-designer Create config.json with the list of tables (each with source + target)
-for the tbl_opensky_flights destination schema.
+for the flight_radar destination schemas.
 ```
 
 ### To create tests:

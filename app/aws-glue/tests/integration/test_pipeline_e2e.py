@@ -25,8 +25,6 @@ from src.dependencies.config import CdcConfig, PartitionKey, SchemaField, Source
 from src.dependencies.processor import Processor
 
 
-# ── Fixtures ─────────────────────────────────────────────────────────────────
-
 @pytest.fixture(scope="session")
 def spark():
     """Create a local SparkSession for the E2E test."""
@@ -84,8 +82,6 @@ def flights_source(account_id, raw_bucket):
     )
 
 
-# ── Helper ───────────────────────────────────────────────────────────────────
-
 def _generate_sample_data(spark, count: int = 10):
     """Generate sample flight rows."""
     rows = []
@@ -109,8 +105,6 @@ def _generate_sample_data(spark, count: int = 10):
     ])
     return spark.createDataFrame(rows, schema)
 
-
-# ── Tests ────────────────────────────────────────────────────────────────────
 
 @pytest.mark.integration
 class TestPipelineE2E:

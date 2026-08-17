@@ -59,7 +59,6 @@ class Processor:
         self._records_written: int = 0
         self._records_rejected: int = 0
 
-    # ── Public API ───────────────────────────────────────────────────
 
     def run(
         self,
@@ -147,7 +146,6 @@ class Processor:
             )
             self._save_quality_metrics(pipeline_status)
 
-    # ── Execution logging ────────────────────────────────────────────
 
     def _register_execution(
         self,
@@ -182,7 +180,6 @@ class Processor:
             records_rejected=self._records_rejected,
         )
 
-    # ── Internal helpers ─────────────────────────────────────────────
 
     @staticmethod
     def _is_streaming(df: DataFrame) -> bool:

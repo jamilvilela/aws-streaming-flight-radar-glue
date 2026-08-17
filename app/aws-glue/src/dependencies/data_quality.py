@@ -71,7 +71,6 @@ class DataQuality:
     def __init__(self, spark: SparkSession):
         self._spark = spark
 
-    # ── Public API ───────────────────────────────────────────────────
 
     def validate(
         self,
@@ -119,7 +118,6 @@ class DataQuality:
             all_rejects.append(rejects)
         # (no explicit dedup — delegated to Delta MERGE in Writer)
 
-        # Combine all rejected records
         if all_rejects:
             combined_rejects = all_rejects[0]
             for r in all_rejects[1:]:
@@ -129,7 +127,6 @@ class DataQuality:
 
         return valid_df, combined_rejects
 
-    # ── Validation steps ─────────────────────────────────────────────
 
     def _cast_types(
         self,
@@ -160,7 +157,6 @@ class DataQuality:
         if not cast_exprs:
             return df, self._empty_rejects()
 
-        # Keep other columns as-is
         other_cols = [c for c in df.columns if c not in target.schema]
         all_exprs = cast_exprs + [F.col(c) for c in other_cols]
 
@@ -248,7 +244,6 @@ class DataQuality:
         """
         return df, self._empty_rejects()
 
-    # ── Reject helpers ───────────────────────────────────────────────
 
     def _enrich_rejects(
         self,
@@ -284,7 +279,6 @@ class DataQuality:
             StructField("_reject_timestamp", TimestampType(), True),
         ])
 
-    # ── Type resolution ──────────────────────────────────────────────
 
     @staticmethod
     def _resolve_type(type_str: str):

@@ -96,7 +96,6 @@ class QualityMetrics:
         except Exception as exc:
             logger.warning("Failed to save quality metrics: %s", exc)
 
-    # ── Internal helpers ─────────────────────────────────────────────
 
     def _resolve_path(self) -> str:
         """Resolve the S3 path for the data_quality_metrics table."""

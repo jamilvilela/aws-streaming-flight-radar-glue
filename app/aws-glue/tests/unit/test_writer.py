@@ -18,8 +18,6 @@ from src.dependencies.config import CdcConfig, PartitionKey, SchemaField, Source
 from src.dependencies.writer import CDC_OP_COLUMN, CDC_TIMESTAMP_COLUMN, Writer
 
 
-# ── Fixtures ─────────────────────────────────────────────────────────────────
-
 @pytest.fixture
 def flights_source():
     return SourceConfig(
@@ -56,8 +54,6 @@ def writer():
     """Writer with a mocked SparkSession (no JVM required)."""
     return Writer(MagicMock())
 
-
-# ── Tests ────────────────────────────────────────────────────────────────────
 
 class TestWriter:
     def test_write_empty(self, writer, flights_source, flights_target):

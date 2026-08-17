@@ -17,8 +17,6 @@ from src.dependencies.config import CdcConfig, PartitionKey, SchemaField, Source
 from src.dependencies.processor import Processor, ProcessorError
 
 
-# ── Fixtures ─────────────────────────────────────────────────────────────────
-
 @pytest.fixture
 def flights_source():
     return SourceConfig(
@@ -73,8 +71,6 @@ def run_mocks(processor):
 
     return {"raw": raw_df, "valid": valid_df, "rejects": rejects_df}
 
-
-# ── Tests ────────────────────────────────────────────────────────────────────
 
 class TestProcessor:
     def test_init(self, processor):

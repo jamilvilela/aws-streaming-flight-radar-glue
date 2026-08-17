@@ -60,6 +60,39 @@ lakehouse-landing-${local.account_id}/
 │           │               ├── 20260622-221229309.parquet
 │           │               └── 20260622-224558193.parquet
 │           │
+│           ├── countries/
+│           │   ├── LOAD00000001.parquet
+│           │   └── 2026/
+│           │       └── 06/
+│           │           ├── 21/
+│           │           │   ├── 20260621-174942000.parquet
+│           │           │   └── 20260621-180418921.parquet
+│           │           └── 22/
+│           │               ├── 20260622-221215482.parquet
+│           │               └── 20260622-224541014.parquet
+│           │
+│           ├── aircraft_types/
+│           │   ├── LOAD00000001.parquet
+│           │   └── 2026/
+│           │       └── 06/
+│           │           ├── 21/
+│           │           │   ├── 20260621-174955001.parquet
+│           │           │   └── 20260621-180431892.parquet
+│           │           └── 22/
+│           │               ├── 20260622-221228110.parquet
+│           │               └── 20260622-224556903.parquet
+│           │
+│           ├── routes/
+│           │   ├── LOAD00000001.parquet
+│           │   └── 2026/
+│           │       └── 06/
+│           │           ├── 21/
+│           │           │   ├── 20260621-175009203.parquet
+│           │           │   └── 20260621-180443815.parquet
+│           │           └── 22/
+│           │               ├── 20260622-221243275.parquet
+│           │               └── 20260622-224613201.parquet
+│           │
 │           └── flights/
 │               ├── LOAD00000001.parquet  (187.7 KiB)
 │               └── 2026/
@@ -77,6 +110,14 @@ lakehouse-landing-${local.account_id}/
 │                           ├── 20260622-221645432.parquet
 │                           ├── 20260622-224614617.parquet
 │                           └── 20260622-224724746.parquet
+│
+│           └── * _cdc/ (CDC streaming, via CdcPath — e.g. aircraft_cdc/, flights_cdc/)
+│               └── 2026/
+│                   └── 06/
+│                       ├── 21/
+│                       │   └── 20260621-180600124.parquet
+│                       └── 22/
+│                           └── 20260622-224800451.parquet
 │
 └── opensky/
     │
@@ -141,12 +182,13 @@ lakehouse-landing-${local.account_id}/
 
 | Path | Total Objects |
 |---|---|
-| **Grand total** | **105 objects — 20.9 MiB** |
-| `dms/flightradar/flight_radar/` (DMS Streaming — Parquet) | 5 tables: `aircraft`, `aircraft_positions`, `airlines`, `airports`, `flights` |
+| **Grand total** | **130 objects — 21.6 MiB** |
+| `dms/flightradar/flight_radar/` (DMS Streaming — Parquet) | 8 tables: `aircraft`, `aircraft_positions`, `airlines`, `airports`, `countries`, `aircraft_types`, `routes`, `flights` |
+| `dms/flightradar/flight_radar/*_cdc/` (DMS CDC Streaming — Parquet) | CDC-only prefixes per table (via `CdcPath`), consumed by the streaming job |
 | `opensky/flights-enriched-raw/` (partitioned by `dt=`) | 3 partitions (June 07, 11, 21) |
 | `opensky/flights/` (partitioned `year/month/day/hour` — JSON) | Records from Apr to May/2026 |
 
 **Notes:**
-- The `dms/flightradar/flight_radar/` folder contains **DMS CDC Streaming** data in **Parquet** format, with initial load files (`LOAD...`) and incremental files partitioned by date (`2026/06/21` and `22`).
+- The `dms/flightradar/flight_radar/` folder contains **DMS CDC Streaming** data in **Parquet** format, with initial load files (`LOAD...`) and incremental files partitioned by date (`2026/06/21` and `22`). Each table also has a dedicated `*_cdc/` prefix written by DMS via the `CdcPath` parameter — the streaming job reads only these prefixes.
 - The `opensky/flights-enriched-raw/` folder contains **Glue ETL** output (likely) with enriched data in partitioned text format.
 - The `opensky/flights/` folder contains raw **OpenSky Network** data ingested via **Firehose** in **JSON** format, hierarchically partitioned by `year=.../month=.../day=.../hour=...`.

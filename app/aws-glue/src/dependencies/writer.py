@@ -45,25 +45,20 @@ class Writer:
     def __init__(self, spark: SparkSession):
         self._spark = spark
 
-    # ── Public API ───────────────────────────────────────────────────
-
     def write(self, df: DataFrame, target: TargetConfig, source: Optional[SourceConfig] = None) -> None:
         """
-        Write a validated DataFrame using Delta MERGE via Glue Catalog.
+        Write a validated DataFrame to the Delta table at ``target.location``.
 
-        Automatically generates ``cod_unico`` from primary key columns
-        (via ``cod_unico_expr`` or by concatenating PK columns with "_"),
-        then performs a Delta MERGE using the table name resolved through
-        the **Glue Catalog** (``DeltaTable.forName``):
+        Generates ``cod_unico`` from the primary key columns (via
+        ``cod_unico_expr`` or by concatenating PK columns with "_"), then
+        performs a Delta MERGE resolved by path (``DeltaTable.forPath``):
           - ``WHEN NOT MATCHED AND Op <> 'D' THEN INSERT`` — new records
           - ``WHEN MATCHED AND Op = 'D' THEN DELETE`` — DMS deletes
           - ``WHEN MATCHED THEN UPDATE SET *`` — existing records updated
 
-        The target table (``{database}.{table}``) must already be registered
-        in the Glue Catalog (created in the data lakehouse repo). On the first
-        write, if the physical Delta table (``_delta_log``) does not exist yet,
-        it is bootstrapped at ``target.location``; subsequent writes perform a
-        Delta MERGE.
+        On the first write the physical Delta table (``_delta_log``) does not
+        exist yet, so it is bootstrapped at ``target.location``; subsequent
+        writes perform the Delta MERGE.
 
         Args:
             df: Validated DataFrame to write.
@@ -156,7 +151,6 @@ class Writer:
         except Exception as exc:
             raise WriterError(f"Failed to write rejects to {target.rejected_location}: {exc}") from exc
 
-    # ── Internal helpers ─────────────────────────────────────────────
 
     @staticmethod
     def _map_cdc_columns(df: DataFrame, source: Optional[SourceConfig]) -> DataFrame:
@@ -212,7 +206,6 @@ class Writer:
         if "cod_unico" in df.columns:
             return df
 
-        # Determine PK columns and separator
         expr_config: Optional[Dict[str, Any]] = target.cod_unico_expr
         if expr_config:
             pk_cols = expr_config.get("columns", target.primary_key)
@@ -240,12 +233,10 @@ class Writer:
         Derives ``event_date`` (date) from the CDC timestamp column
         if not already present in the DataFrame.
         """
-        # Determine which partition columns already exist
         needed = [pk for pk in target.partition_keys if pk.name not in df.columns]
         if not needed:
             return df
 
-        # Resolve timestamp column
         ts_col: Optional[str] = None
         if source and source.cdc_config and source.cdc_config.timestamp_column:
             ts_col = source.cdc_config.timestamp_column

@@ -37,7 +37,6 @@ class Reader:
         """
         self._spark = spark
 
-    # ── Public API ───────────────────────────────────────────────────
 
     def read(self, source: SourceConfig, mode: str = "streaming") -> DataFrame:
         """
@@ -63,7 +62,6 @@ class Reader:
             return self._read_batch(source)
         return self._read_streaming(source)
 
-    # ── Internal methods ─────────────────────────────────────────────
 
     def _read_batch(self, source: SourceConfig) -> DataFrame:
         """Read all existing data from source location as a static DataFrame."""

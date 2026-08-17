@@ -65,14 +65,12 @@ class AwsHelper:
             retries={"max_attempts": retries, "mode": "adaptive"},
         )
 
-        # Cached clients
         self._s3: Any = None
         self._athena: Any = None
         self._glue: Any = None
         self._sts: Any = None
         self._cloudwatch: Any = None
 
-    # ── Client properties (lazy) ─────────────────────────────────────
 
     @property
     def s3(self) -> Any:
@@ -109,7 +107,6 @@ class AwsHelper:
             self._cloudwatch = self._client("cloudwatch")
         return self._cloudwatch
 
-    # ── Public methods ───────────────────────────────────────────────
 
     def get_account_id(self) -> str:
         """Return the current AWS account ID via STS."""
@@ -144,7 +141,6 @@ class AwsHelper:
         import time
 
         try:
-            # Start the query execution
             kwargs: dict[str, Any] = {
                 "QueryString": query,
                 "WorkGroup": workgroup,
@@ -159,7 +155,6 @@ class AwsHelper:
             query_execution_id = response["QueryExecutionId"]
             logger.info("Athena query started: %s", query_execution_id)
 
-            # Poll until complete or failed
             max_wait = 300  # 5 minutes
             poll_interval = 2
             waited = 0
@@ -188,13 +183,11 @@ class AwsHelper:
                     f"Athena query timed out after {max_wait}s"
                 )
 
-            # Retrieve results location
             result_location = status_response["QueryExecution"]["ResultConfiguration"][
                 "OutputLocation"
             ]
             logger.info("Athena results at: %s", result_location)
 
-            # Read results into Spark DataFrame
             return spark.read.format("parquet").load(result_location)
 
         except AwsHelperError:
@@ -244,22 +237,18 @@ class AwsHelper:
                 for obj in page.get("Contents", []):
                     source_key = obj["Key"]
 
-                    # Apply regex filter
                     if compiled_pattern and not compiled_pattern.search(source_key):
                         continue
 
-                    # Build destination key (replace prefix)
                     relative_key = source_key[len(source_prefix):].lstrip("/")
                     dest_key = f"{dest_prefix.rstrip('/')}/{relative_key}"
 
-                    # Copy
                     self.s3.copy_object(
                         CopySource={"Bucket": source_bucket, "Key": source_key},
                         Bucket=dest_bucket,
                         Key=dest_key,
                     )
 
-                    # Optionally delete source
                     if delete_source:
                         self.s3.delete_object(Bucket=source_bucket, Key=source_key)
 
@@ -327,7 +316,6 @@ class AwsHelper:
         except Exception as exc:
             logger.warning("Failed to publish metric: %s", exc)
 
-    # ── Private helpers ──────────────────────────────────────────────
 
     def _client(self, service: str) -> Any:
         """Create a boto3 client using configured region/profile."""

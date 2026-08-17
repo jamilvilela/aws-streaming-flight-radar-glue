@@ -55,12 +55,13 @@ spark = SparkSession.builder \
 
 df = spark.readStream.format("parquet") \
     .option("maxFilesPerTrigger", 1) \
-    .load("s3://bucket/landing/flights/")
+    .option("cleanSource", "archive") \
+    .option("includeExistingFiles", False) \
+    .load("s3://bucket/landing/flights_cdc/")
 
 def write_batch(df, epoch_id):
-    df.write.format("delta") \
-        .mode("append") \
-        .save("s3://bucket/raw/flights/")
+    # Delta MERGE by PK resolved by path (forPath) — cross-batch dedup
+    writer.write(df, target, source)
 
 df.writeStream \
     .trigger(processingTime="60 seconds") \
@@ -69,7 +70,7 @@ df.writeStream \
     .start() \
     .awaitTermination()
 ```
-**Idempotency:** use Delta MERGE based on composite PK to ensure cross-batch uniqueness (no need for `dropDuplicates`).
+**Idempotency:** Delta MERGE based on composite PK (via `cod_unico`) to ensure cross-batch uniqueness (no need for `dropDuplicates`).
 
 ## 6 Orchestration and Observability
 - **Orchestration:** Airflow (DAGs), EventBridge, Step Functions.  
@@ -208,14 +209,14 @@ flowchart TD
     LAND["S3 Landing<br/>lakehouse-landing-{account_id}<br/>dms/flightradar/flight_radar/"]
     EVB["EventBridge<br/>DMS Full Load Completed"]
     LAMBDA["Lambda glue_starter<br/>start_glue_job.py"]
-    BATCH["Glue Job Batch<br/>glue-flight-radar-full-load<br/>--mode=batch"]
+    BATCH["Glue Job Batch<br/>glue-flight-radar-batch<br/>--mode=batch"]
     TRIG["Glue Trigger<br/>CONDITIONAL"]
     STREAM["Glue Job Streaming<br/>glue-flight-radar-streaming<br/>--mode=streaming"]
     READER["Reader"]
     DQ["DataQuality<br/>(4 estágios)"]
     WRITER["Writer<br/>(Delta MERGE por PK)"]
     REJ["Rejected/ (Parquet)"]
-    RAW["S3 Raw<br/>tbl_opensky_flights (Delta)"]
+    RAW["S3 Raw<br/>tabelas Delta (db_raw)"]
     ETL["EtlControl"]
     QM["QualityMetrics"]
 
@@ -249,11 +250,11 @@ sequenceDiagram
     participant TRIG as Glue Trigger
     participant STREAM as Glue Streaming Job
 
-    DMS->>LAND: Full load + CDC (Parquet, 5 tabelas)
+    DMS->>LAND: Full load + CDC (Parquet, 8 tabelas)
     DMS->>EB: DMS Full Load Completed
     EB->>LAMBDA: InvokeFunction
-    LAMBDA->>BATCH: start_job_run(--mode=batch)
-    Note over BATCH: Processa tabelas SEQUENCIALMENTE (order 1..5)
+    LAMBDA->>BATCH: start_workflow_run(--mode=batch)
+    Note over BATCH: Processa tabelas SEQUENCIALMENTE (order 1..8)
     BATCH-->>TRIG: SUCCEEDED
     TRIG->>STREAM: start_job_run(--mode=streaming)
     Note over STREAM: N queries CONCORRENTES (uma por tabela)

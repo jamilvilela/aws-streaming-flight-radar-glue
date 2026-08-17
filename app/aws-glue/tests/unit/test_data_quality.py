@@ -21,8 +21,6 @@ from src.dependencies.config import CdcConfig, PartitionKey, SchemaField, Source
 from src.dependencies.data_quality import DataQuality
 
 
-# ── Fixtures ─────────────────────────────────────────────────────────────────
-
 @pytest.fixture
 def flights_target():
     return TargetConfig(
@@ -58,8 +56,6 @@ def flights_source():
 def dq(spark):
     return DataQuality(spark)
 
-
-# ── Tests ────────────────────────────────────────────────────────────────────
 
 class TestDataQuality:
     def test_empty_dataframe(self, spark, dq, flights_target, flights_source):

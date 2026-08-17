@@ -103,7 +103,6 @@ class EtlControl:
         except Exception as exc:
             logger.warning("Failed to register execution in etl_control: %s", exc)
 
-    # ── Internal helpers ─────────────────────────────────────────────
 
     def _resolve_path(self) -> str:
         """Resolve the S3 path for the etl_control table."""
