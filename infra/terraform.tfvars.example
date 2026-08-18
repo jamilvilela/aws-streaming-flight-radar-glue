@@ -57,6 +57,15 @@ glue_config_s3_path = ""
 
 glue_connections = []
 
+# ARN of the DMS replication task that loads flight_radar. The batch-starter
+# Lambda polls this task and starts the Glue workflow once the full-load phase
+# completes. Leave empty only if there is a single replication task in the
+# account.
+# dms_replication_task_arn = "arn:aws:dms:us-east-1:123456789012:task:abcdef0123456789"
+
+# Minutes between full-load completion checks (default 5).
+# full_load_check_interval = 5
+
 tags = {
   ManagedBy   = "terraform"
   Environment = "prod"

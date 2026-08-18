@@ -39,10 +39,13 @@ Both modes share the same `main.py` script, differentiated by the `--mode` param
 flowchart TD
     DMS["DMS Task<br/>(full-load-and-cdc)"]
     LAND["S3 Landing<br/>(prefixos por tabela + CDC)"]
-    EVB["EventBridge<br/>(DMS Full Load Complete)"]
+    SCHED["EventBridge Schedule<br/>rate({interval} min)"]
     LAMBDA["Lambda glue_starter"]
+    LOCK["DynamoDB Lock<br/>glue-flight-radar-workflow-lock"]
+    WF["Glue Workflow<br/>glue-flight-radar-batch-workflow"]
+    ON_DEMAND["Glue Trigger<br/>ON_DEMAND"]
     BATCH["Glue Batch Job<br/>--mode=batch · sequencial"]
-    TRIG["Glue Trigger<br/>(CONDITIONAL)"]
+    TRIG["Glue Trigger<br/>CONDITIONAL"]
     STREAM["Glue Streaming Job<br/>--mode=streaming · concorrente"]
     READER["Reader"]
     DQ["DataQuality<br/>(4 estágios)"]
@@ -52,9 +55,12 @@ flowchart TD
     QM["QualityMetrics"]
 
     DMS --> LAND
-    LAND --> EVB
-    EVB --> LAMBDA
-    LAMBDA --> BATCH
+    SCHED --> LAMBDA
+    LAMBDA -->|describe_replication_tasks<br/>FullLoadProgressPercent==100| DMS
+    LAMBDA -->|put_item<br/>attribute_not_exists| LOCK
+    LAMBDA -->|start_workflow_run| WF
+    WF --> ON_DEMAND
+    ON_DEMAND --> BATCH
     BATCH --> TRIG
     TRIG --> STREAM
     LAND --> READER
@@ -148,7 +154,9 @@ flowchart TD
 
 ### 3.10. Lambda — `app/aws-lambda/start_workflow/start_glue_job.py`
 - Lives **outside** `app/aws-glue/src` (kept separate from the Glue job source)
-- Triggered by EventBridge when the DMS full load completes
+- Invoked on a **schedule** (EventBridge `rate()` rule) — polls the DMS replication task status
+- Queries `describe_replication_tasks` and starts the workflow only when the full-load phase completes (`FullLoadProgressPercent == 100` and `TablesLoading == 0`)
+- Uses a **DynamoDB lock** (`glue-flight-radar-workflow-lock`, conditional `attribute_not_exists` on the task ARN) to guarantee a single workflow start per full load
 - Starts the full-load Glue workflow via `glue.start_workflow_run()`
 - The workflow uses native Glue sequencing (on-demand + conditional triggers) to start streaming after the batch succeeds, avoiding polling and concurrent writes
 
@@ -169,10 +177,11 @@ flowchart TD
 | `aws_glue_trigger.start_streaming_after_full_load` | `glue.tf` | Glue Trigger | CONDITIONAL — starts streaming CDC after batch succeed |
 | `aws_iam_role.lambda_glue_starter` | `iam.tf` | IAM Role | Role for Lambda to start the full-load Glue workflow |
 | `aws_iam_role_policy.lambda_glue_starter` | `iam.tf` | IAM Policy | Permission `glue:StartWorkflowRun` on the full-load workflow |
-| `aws_lambda_function.glue_starter` | `lambda.tf` | Lambda Function | Starts the full-load Glue workflow (EventBridge target) |
+| `aws_lambda_function.glue_starter` | `lambda.tf` | Lambda Function | Starts the full-load Glue workflow (EventBridge schedule target) |
 | `aws_lambda_permission.eventbridge_invoke_glue_starter` | `lambda.tf` | Lambda Permission | Allows EventBridge to invoke the Lambda |
-| `aws_cloudwatch_event_rule.full_load_complete` | `cloudwatch.tf` | EventBridge Rule | DMS full load completed event (source=aws.dms) |
+| `aws_cloudwatch_event_rule.full_load_complete` | `cloudwatch.tf` | EventBridge Rule | Schedule `rate()` — polls DMS task status until full load completes |
 | `aws_cloudwatch_event_target.start_glue_batch` | `cloudwatch.tf` | EventBridge Target | Triggers the Lambda via InvokeFunction |
+| `aws_dynamodb_table.workflow_lock` | `dynamodb.tf` | DynamoDB Table | Lock keyed by task ARN — guarantees single workflow start per full load |
 | `data.archive_file.helpers` | `s3.tf` | Archive Data | Creates helpers.zip from `app/aws-glue/` (contains the `src` package) |
 | `aws_s3_object.main_py` | `s3.tf` | S3 Object | Uploads `main.py` to `aws-glue/jobs/flight-radar/src/` |
 | `aws_s3_object.helpers_zip` | `s3.tf` | S3 Object | Uploads `helpers.zip` to `aws-glue/jobs/flight-radar/src/dependencies/` |
@@ -285,20 +294,31 @@ code/classes via the `--mode` argument:
 
 ```mermaid
 sequenceDiagram
-    participant DMS as DMS Task
-    participant EB as EventBridge
+    participant SCHED as EventBridge Schedule
     participant Lambda as Lambda glue_starter
+    participant DMS as DMS Task
+    participant LOCK as DynamoDB Lock
+    participant WF as Glue Workflow
     participant Batch as Glue Batch Job
     participant Trigger as Glue Trigger
     participant Stream as Glue Streaming Job
 
-    DMS->>EB: Full Load Completed (8 tables)
-    EB->>Lambda: InvokeFunction
-    Lambda->>Batch: StartWorkflowRun (--mode=batch)
-    Note over Batch: Processes tables SEQUENTIALLY (order 1..8)
-    Batch-->>Trigger: Job Succeeded
-    Trigger->>Stream: StartJobRun (--mode=streaming)
-    Note over Stream: Starts N CONCURRENT queries (one per table)
+    loop A cada {interval} min
+        SCHED->>Lambda: InvokeFunction (rate)
+        Lambda->>DMS: describe_replication_tasks
+        alt Full load completo (100% e 0 tabelas carregando)
+            Lambda->>LOCK: put_item (attribute_not_exists task_arn)
+            LOCK-->>Lambda: lock adquirido (disparo único)
+            Lambda->>WF: start_workflow_run
+            WF->>Batch: ON_DEMAND trigger (--mode=batch)
+            Note over Batch: Processes tables SEQUENTIALLY (order 1..8)
+            Batch-->>Trigger: Job Succeeded
+            Trigger->>Stream: StartJobRun (--mode=streaming)
+            Note over Stream: Starts N CONCURRENT queries (one per table)
+        else Full load ainda em andamento
+            Lambda-->>SCHED: skip (aguarda próximo ciclo)
+        end
+    end
     Note over DMS: DMS continues writing CDC to separate prefixes (CdcPath)
 ```
 

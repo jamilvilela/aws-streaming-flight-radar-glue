@@ -251,6 +251,25 @@ resource "aws_iam_role_policy" "lambda_glue_starter" {
       {
         Effect = "Allow"
         Action = [
+          "dms:DescribeReplicationTasks",
+        ]
+        Resource = [
+          var.dms_replication_task_arn != "" ? var.dms_replication_task_arn : "*",
+        ]
+      },
+      {
+        Effect = "Allow"
+        Action = [
+          "dynamodb:GetItem",
+          "dynamodb:PutItem",
+        ]
+        Resource = [
+          aws_dynamodb_table.workflow_lock.arn,
+        ]
+      },
+      {
+        Effect = "Allow"
+        Action = [
           "logs:CreateLogGroup",
           "logs:CreateLogStream",
           "logs:PutLogEvents",

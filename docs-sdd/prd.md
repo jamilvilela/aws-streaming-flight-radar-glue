@@ -84,8 +84,10 @@ Data replicated by DMS in the landing bucket needs to be processed before it's r
 
 ### FR13 — Lambda Starter (outside the Glue src)
 - Lambda source kept in `app/aws-lambda/start_workflow/`, outside the `app/aws-glue/src/` Glue job source
-- Triggered by EventBridge when the DMS full load completes
-- Starts the full-load Glue workflow, with native Glue sequencing to start streaming afterward
+- Invoked on a **schedule** (EventBridge `rate()` rule) — polls the DMS replication task status
+- Starts the full-load Glue workflow only when the full-load phase completes (`FullLoadProgressPercent == 100` and `TablesLoading == 0`)
+- Uses a **DynamoDB lock** (conditional `attribute_not_exists` on the task ARN) to guarantee a single start per full load
+- Native Glue sequencing (on-demand + conditional triggers) starts streaming after the batch succeeds
 
 ### FR09 — Dynamic Spark Configs (--conf)
 - Spark configs defined in Terraform (`locals.spark_properties`) and converted to `--conf` string

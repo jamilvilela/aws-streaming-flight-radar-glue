@@ -3,24 +3,20 @@
 #===============================================================================
 
 # ── EventBridge Rule — Full Load Complete ───────────────────────────────────
+# A DMS replication task of type full-load-and-cdc does NOT stop after the full
+# load — it transitions to "Load complete, replication ongoing" and keeps
+# applying CDC. It therefore never emits the REPLICATION_TASK_STOPPED /
+# "Stop Reason FULL_LOAD_ONLY_FINISHED" event (that event only fires for
+# full-load-only tasks), so no event-driven rule can signal full-load
+# completion. Instead, this rule polls the DMS task status on a schedule and
+# the Lambda decides (via describe-replication-tasks) when the full-load phase
+# is done.
 
 resource "aws_cloudwatch_event_rule" "full_load_complete" {
   name        = "${local.glue_full_load_job_name}-complete"
-  description = "Triggered when the full load completes for flight_radar"
+  description = "Poll DMS replication task every ${var.full_load_check_interval} minutes and start the full-load workflow once the full-load phase completes"
 
-  # The full load completion is signalled by a replication task state change
-  # event (REPLICATION_TASK_STOPPED / detailMessage "Stop Reason FULL_LOAD_ONLY_FINISHED").
-  event_pattern = jsonencode({
-    source      = ["aws.dms"]
-    detail-type = ["DMS Replication Task State Change"]
-    detail = {
-      type          = ["REPLICATION_TASK"]
-      category      = ["StateChange"]
-      eventType     = ["REPLICATION_TASK_STOPPED"]
-      eventId       = ["DMS-EVENT-0079"]
-      detailMessage = ["Stop Reason FULL_LOAD_ONLY_FINISHED"]
-    }
-  })
+  schedule_expression = "rate(${var.full_load_check_interval} minutes)"
 
   tags = merge(local.common_tags, {
     Name = "${local.glue_full_load_job_name}-complete"

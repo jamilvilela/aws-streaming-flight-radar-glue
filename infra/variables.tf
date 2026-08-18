@@ -116,6 +116,18 @@ variable "glue_job_timeout" {
   default     = 2880
 }
 
+variable "dms_replication_task_arn" {
+  description = "ARN of the DMS replication task that loads flight_radar. Used by the batch-starter Lambda to check full-load completion. Leave empty to auto-detect the single task in the account."
+  type        = string
+  default     = ""
+}
+
+variable "full_load_check_interval" {
+  description = "Minutes between full-load completion checks (EventBridge schedule that invokes the batch-starter Lambda)"
+  type        = number
+  default     = 5
+}
+
 variable "glue_script_location" {
   description = "S3 path to the main.py script"
   type        = string

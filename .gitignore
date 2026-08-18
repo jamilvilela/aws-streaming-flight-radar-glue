@@ -224,6 +224,7 @@ infra/.terraform/*
 *.tfstate
 *.tfstate.*
 terraform.tfstate.d/
+tfplan
 
 # Terraform variable values (never commit real values)
 *.tfvars

@@ -21,12 +21,27 @@ resource "aws_lambda_function" "glue_starter" {
 
   environment {
     variables = {
-      GLUE_WORKFLOW_NAME = "${local.glue_full_load_job_name}-workflow"
+      GLUE_WORKFLOW_NAME       = "${local.glue_full_load_job_name}-workflow"
+      DMS_REPLICATION_TASK_ARN = var.dms_replication_task_arn
+      DMS_WORKFLOW_LOCK_TABLE  = aws_dynamodb_table.workflow_lock.name
     }
   }
 
   tags = merge(local.common_tags, {
     Name = "${local.glue_full_load_job_name}-starter"
+  })
+}
+
+# ── CloudWatch Log Group — Lambda ────────────────────────────────────────────
+# Pre-create the Lambda log group so log-based monitors do not fail with
+# ResourceNotFoundException before the function is first invoked.
+
+resource "aws_cloudwatch_log_group" "glue_starter" {
+  name              = "/aws/lambda/${local.glue_full_load_job_name}-starter"
+  retention_in_days = 14
+
+  tags = merge(local.common_tags, {
+    Name = "${local.glue_full_load_job_name}-starter-logs"
   })
 }
 

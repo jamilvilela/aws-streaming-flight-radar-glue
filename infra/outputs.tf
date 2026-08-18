@@ -78,6 +78,11 @@ output "glue_workflow_name" {
   value       = aws_glue_workflow.dms_full_load.name
 }
 
+output "workflow_lock_table" {
+  description = "DynamoDB table used to start the workflow exactly once"
+  value       = aws_dynamodb_table.workflow_lock.name
+}
+
 output "glue_trigger_name" {
   description = "Glue conditional trigger name for starting streaming after full load"
   value       = aws_glue_trigger.start_streaming_after_full_load.name

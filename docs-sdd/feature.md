@@ -117,8 +117,9 @@ Example target (embedded in the flights source):
 | Glue Job (streaming) | `glue.tf` | Streaming CDC job — Glue 5.0 / Spark 4.0 / Python 3.9 |
 | Glue Triggers | `glue.tf` | ON_DEMAND (batch) + CONDITIONAL (streaming) |
 | IAM Role + Policy | `iam.tf` | Lambda → Glue (`glue:StartWorkflowRun`) |
-| Lambda Function | `lambda.tf` | Starts the full-load Glue workflow (EventBridge target) |
-| EventBridge Rule + Target | `cloudwatch.tf` | DMS full load complete → Lambda |
+| Lambda Function | `lambda.tf` | Starts the full-load Glue workflow (EventBridge schedule target) |
+| EventBridge Rule + Target | `cloudwatch.tf` | Schedule `rate()` — polls DMS task status until full load completes → Lambda |
+| DynamoDB Lock Table | `dynamodb.tf` | Lock keyed by task ARN — guarantees single workflow start per full load |
 | Archive + S3 Objects | `s3.tf` | Upload of main.py, helpers.zip, config.json and Lambda source to the workspace bucket |
 
 > ⚠️ Glue Catalog databases and tables are not created by Terraform — they already exist in the Data Lake. Names are only for code reference.

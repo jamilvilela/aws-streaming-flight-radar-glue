@@ -30,10 +30,13 @@ Implement an **AWS Glue 5.0 (PySpark 4.0)** job to process **CDC (Change Data Ca
 flowchart TD
     DMS["DMS Task<br/>(full-load-and-cdc)"]
     LAND["S3 Landing<br/>(DMS Parquet)"]
-    EVB["EventBridge<br/>(DMS Full Load Complete)"]
+    SCHED["EventBridge Schedule<br/>rate({interval} min)"]
     LAMBDA["Lambda glue_starter"]
+    LOCK["DynamoDB Lock<br/>glue-flight-radar-workflow-lock"]
+    WF["Glue Workflow<br/>glue-flight-radar-batch-workflow"]
+    ON_DEMAND["Glue Trigger<br/>ON_DEMAND"]
     BATCH["Glue Batch Job<br/>--mode=batch"]
-    TRIG["Glue Trigger<br/>(CONDITIONAL)"]
+    TRIG["Glue Trigger<br/>CONDITIONAL"]
     STREAM["Glue Streaming Job<br/>--mode=streaming"]
     READER["Reader"]
     DQ["DataQuality<br/>(4 estágios)"]
@@ -43,9 +46,12 @@ flowchart TD
     QM["QualityMetrics<br/>(quality metrics)"]
 
     DMS --> LAND
-    LAND --> EVB
-    EVB --> LAMBDA
-    LAMBDA --> BATCH
+    SCHED --> LAMBDA
+    LAMBDA -->|describe_replication_tasks<br/>FullLoadProgressPercent==100| DMS
+    LAMBDA -->|put_item<br/>attribute_not_exists| LOCK
+    LAMBDA -->|start_workflow_run| WF
+    WF --> ON_DEMAND
+    ON_DEMAND --> BATCH
     BATCH --> TRIG
     TRIG --> STREAM
     LAND --> READER
@@ -72,8 +78,9 @@ The Terraform module in `infra/` manages all required AWS resources, organized b
 | `aws_glue_job.streaming_minibatch` | `glue.tf` | Streaming CDC Glue job (Glue 5.0, Spark 4.0, Python 3.9) |
 | `aws_glue_trigger.start_streaming_after_full_load` | `glue.tf` | CONDITIONAL trigger — starts streaming after batch |
 | `aws_iam_role.lambda_glue_starter` + policy | `iam.tf` | IAM role/policy for Lambda → Glue |
-| `aws_lambda_function.glue_starter` + permission | `lambda.tf` | Lambda that starts the full-load workflow |
-| `aws_cloudwatch_event_rule.full_load_complete` + target | `cloudwatch.tf` | EventBridge rule/target (DMS full load complete) |
+| `aws_lambda_function.glue_starter` + permission | `lambda.tf` | Lambda that starts the full-load workflow (EventBridge schedule target) |
+| `aws_cloudwatch_event_rule.full_load_complete` + target | `cloudwatch.tf` | EventBridge schedule rule/target — polls DMS task status until full load completes |
+| `aws_dynamodb_table.workflow_lock` | `dynamodb.tf` | DynamoDB lock keyed by task ARN — single workflow start per full load |
 | `data.archive_file.helpers` + `aws_s3_object.*` | `s3.tf` | Creates helpers.zip and declarative upload of main.py, config.json and Lambda source to the workspace bucket |
 
 > ⚠️ Glue Catalog databases and tables are not managed by this module — they already exist in the Data Lake.
@@ -148,7 +155,9 @@ Data sources: IAM role `role-datalake-analytics`, default VPC, subnets, security
 
 ### 9. Lambda — `app/aws-lambda/start_workflow/start_glue_job.py`
 - Kept **outside** `app/aws-glue/src`, separate from the Glue job source
-- Triggered by EventBridge when DMS completes the full load
+- Invoked on a **schedule** (EventBridge `rate()` rule) — polls the DMS replication task status
+- Starts the workflow only when the full-load phase completes (`FullLoadProgressPercent == 100` and `TablesLoading == 0`)
+- Uses a **DynamoDB lock** (conditional `attribute_not_exists` on the task ARN) to guarantee a single start per full load
 - Starts the full-load Glue workflow via `glue.start_workflow_run()`
 - Native Glue sequencing (on-demand + conditional triggers) starts streaming after the batch succeeds — no polling in the Lambda
 

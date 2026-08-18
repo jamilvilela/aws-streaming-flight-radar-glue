@@ -120,86 +120,6 @@ resource "aws_s3_bucket_lifecycle_configuration" "lc" {
 }
 ```
 
-**Diagrama de Arquitetura (Mermaid)**
-
-```mermaid
-flowchart LR
-    subgraph SRC["Fontes de Dados"]
-        RDBMS["RDBMS (CDC)"]
-        LEGACY["Arquivos Legados"]
-        SAAS["SaaS APIs"]
-        APPS["Apps / Sites"]
-    end
-
-    subgraph CON["Conectores"]
-        DMS["AWS DMS"]
-        SFTP["Transfer Family (SFTP)"]
-        APPFLOW["AppFlow"]
-        GW["API Gateway + Lambda"]
-        EVB["EventBridge"]
-    end
-
-    subgraph ING["Ingestão"]
-        KIN["Kinesis / Firehose"]
-        MSK["MSK (Kafka)"]
-        FLINK["Flink (KDA)"]
-    end
-
-    subgraph LAKE["Lakehouse S3 (Medallion)"]
-        LAND["Landing"]
-        BRONZE["Bronze"]
-        SILVER["Silver"]
-        GOLD["Gold"]
-        WS["Workspace"]
-    end
-
-    subgraph PROC["Processamento"]
-        GLUE["Glue (batch/streaming)"]
-        EMR["EMR (Spark)"]
-        DBX["Databricks"]
-    end
-
-    subgraph GOV["Governança"]
-        CAT["Glue Data Catalog"]
-        LF["Lake Formation"]
-        DZ["DataZone"]
-    end
-
-    subgraph CONSUME["Consumo"]
-        RS["Redshift"]
-        ATH["Athena"]
-        SM["SageMaker"]
-        API["APIs"]
-    end
-
-    RDBMS --> DMS
-    LEGACY --> SFTP
-    SAAS --> APPFLOW
-    APPS --> GW
-    DMS --> MSK
-    SFTP --> KIN
-    APPFLOW --> KIN
-    GW --> KIN
-    EVB --> GLUE
-    KIN --> LAND
-    MSK --> LAND
-    LAND --> GLUE
-    LAND --> EMR
-    LAND --> DBX
-    GLUE --> BRONZE
-    EMR --> BRONZE
-    DBX --> BRONZE
-    BRONZE --> SILVER
-    SILVER --> GOLD
-    GOLD --> WS
-    CAT -.-> GLUE
-    LF -.-> SILVER
-    GOLD --> RS
-    GOLD --> ATH
-    GOLD --> SM
-    GOLD --> API
-```
-
 **Fluxo da Solução (Mermaid)**
 
 ```mermaid
@@ -207,8 +127,11 @@ flowchart TD
     AURO["Aurora PostgreSQL<br/>(schema flight_radar)"]
     DMS["AWS DMS Serverless<br/>(full-load-and-cdc)"]
     LAND["S3 Landing<br/>lakehouse-landing-{account_id}<br/>dms/flightradar/flight_radar/"]
-    EVB["EventBridge<br/>DMS Full Load Completed"]
+    SCHED["EventBridge Schedule<br/>rate({interval} min)"]
     LAMBDA["Lambda glue_starter<br/>start_glue_job.py"]
+    LOCK["DynamoDB Lock<br/>glue-flight-radar-workflow-lock"]
+    WF["Glue Workflow<br/>glue-flight-radar-batch-workflow"]
+    ON_DEMAND["Glue Trigger<br/>ON_DEMAND"]
     BATCH["Glue Job Batch<br/>glue-flight-radar-batch<br/>--mode=batch"]
     TRIG["Glue Trigger<br/>CONDITIONAL"]
     STREAM["Glue Job Streaming<br/>glue-flight-radar-streaming<br/>--mode=streaming"]
@@ -222,9 +145,12 @@ flowchart TD
 
     AURO --> DMS
     DMS --> LAND
-    LAND --> EVB
-    EVB --> LAMBDA
-    LAMBDA --> BATCH
+    SCHED --> LAMBDA
+    LAMBDA -->|describe_replication_tasks<br/>FullLoadProgressPercent==100| DMS
+    LAMBDA -->|put_item<br/>attribute_not_exists| LOCK
+    LAMBDA -->|start_workflow_run| WF
+    WF --> ON_DEMAND
+    ON_DEMAND --> BATCH
     BATCH --> TRIG
     TRIG --> STREAM
     LAND --> READER
@@ -242,22 +168,31 @@ flowchart TD
 
 ```mermaid
 sequenceDiagram
-    participant DMS as AWS DMS
-    participant LAND as S3 Landing
-    participant EB as EventBridge
+    participant SCHED as EventBridge Schedule
     participant LAMBDA as Lambda glue_starter
+    participant DMS as AWS DMS
+    participant LOCK as DynamoDB Lock
+    participant WF as Glue Workflow
     participant BATCH as Glue Batch Job
     participant TRIG as Glue Trigger
     participant STREAM as Glue Streaming Job
 
-    DMS->>LAND: Full load + CDC (Parquet, 8 tabelas)
-    DMS->>EB: DMS Full Load Completed
-    EB->>LAMBDA: InvokeFunction
-    LAMBDA->>BATCH: start_workflow_run(--mode=batch)
-    Note over BATCH: Processa tabelas SEQUENCIALMENTE (order 1..8)
-    BATCH-->>TRIG: SUCCEEDED
-    TRIG->>STREAM: start_job_run(--mode=streaming)
-    Note over STREAM: N queries CONCORRENTES (uma por tabela)
+    loop A cada {interval} min
+        SCHED->>LAMBDA: InvokeFunction (rate)
+        LAMBDA->>DMS: describe_replication_tasks
+        alt Full load completo (100% e 0 tabelas carregando)
+            LAMBDA->>LOCK: put_item (attribute_not_exists task_arn)
+            LOCK-->>LAMBDA: lock adquirido (disparo único)
+            LAMBDA->>WF: start_workflow_run
+            WF->>BATCH: ON_DEMAND trigger (--mode=batch)
+            Note over BATCH: Processa tabelas SEQUENCIALMENTE (order 1..8)
+            BATCH-->>TRIG: SUCCEEDED
+            TRIG->>STREAM: start_job_run (--mode=streaming)
+            Note over STREAM: N queries CONCORRENTES (uma por tabela)
+        else Full load ainda em andamento
+            LAMBDA-->>SCHED: skip (aguarda próximo ciclo)
+        end
+    end
 ```
 
 ---  
