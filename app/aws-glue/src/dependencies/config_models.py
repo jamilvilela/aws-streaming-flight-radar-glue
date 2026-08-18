@@ -37,9 +37,13 @@ class PartitionKey:
 
     name: str
     type: str = "string"
+    source_column: Optional[str] = None
 
     def to_dict(self) -> Dict[str, str]:
-        return {"name": self.name, "type": self.type}
+        d = {"name": self.name, "type": self.type}
+        if self.source_column:
+            d["source_column"] = self.source_column
+        return d
 
 
 @dataclass
@@ -77,7 +81,7 @@ class TargetConfig:
     schema: Dict[str, SchemaField] = field(default_factory=dict)
     primary_key: List[str] = field(default_factory=list)
     enum_columns: Dict[str, List[str]] = field(default_factory=dict)
-    cod_unico_expr: Optional[Dict[str, Any]] = None
+    cod_unique_expr: Optional[Dict[str, Any]] = None
 
     @property
     def database(self) -> str:
@@ -98,14 +102,14 @@ class TargetConfig:
             "schema": {k: v.to_dict() for k, v in self.schema.items()},
             "primary_key": list(self.primary_key),
             "enum_columns": dict(self.enum_columns),
-            "cod_unico_expr": dict(self.cod_unico_expr) if self.cod_unico_expr else None,
+            "cod_unique_expr": dict(self.cod_unique_expr) if self.cod_unique_expr else None,
         }
 
 
 @dataclass
 class SourceConfig:
     """
-    Configuration for a single data source (DMS table).
+    Configuration for a single data source.
 
     Includes:
     - ``order`` for batch sequencing
@@ -258,7 +262,11 @@ class Config:
             # --- Embedded target config ---
             raw_target = item.get("target", {})
             parsed_partitions = [
-                PartitionKey(name=p.get("name", ""), type=p.get("type", "string"))
+                PartitionKey(
+                    name=p.get("name", ""),
+                    type=p.get("type", "string"),
+                    source_column=p.get("source_column"),
+                )
                 for p in raw_target.get("partition_keys", [])
             ]
 
@@ -284,7 +292,7 @@ class Config:
                 schema=parsed_schema,
                 primary_key=raw_target.get("primary_key", []),
                 enum_columns=raw_target.get("enum_columns", {}),
-                cod_unico_expr=raw_target.get("cod_unico_expr"),
+                cod_unique_expr=raw_target.get("cod_unique_expr"),
             )
 
             # --- SourceConfig ---

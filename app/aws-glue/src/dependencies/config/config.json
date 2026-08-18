@@ -28,11 +28,11 @@
         "year_built":      { "type": "int", "nullable": true, "comment": "Year of manufacture" },
         "created_at":      { "type": "timestamp", "nullable": false, "comment": "Record creation timestamp" },
         "updated_at":      { "type": "timestamp", "nullable": false, "comment": "Record last update timestamp" },
-        "cod_unico":       { "type": "string", "nullable": true, "comment": "PK concatenation (icao24)" },
-        "Op":              { "type": "string", "nullable": true, "comment": "DMS CDC operation (I/U/D)" }
+        "cod_unique":      { "type": "string", "nullable": true, "comment": "PK concatenation (icao24)" },
+        "cdc_operation":              { "type": "string", "nullable": true, "comment": "CDC operation (I/U/D)" }
       },
       "primary_key": ["icao24"],
-      "cod_unico_expr": { "columns": ["icao24"], "separator": "_" },
+      "cod_unique_expr": { "columns": ["icao24"], "separator": "_" },
       "enum_columns": {}
     }
   },
@@ -74,11 +74,11 @@
         "local_code":       { "type": "string", "nullable": true, "comment": "Local airport code" },
         "home_link":        { "type": "string", "nullable": true, "comment": "Airport homepage URL" },
         "wikipedia_link":   { "type": "string", "nullable": true, "comment": "Wikipedia page URL" },
-        "cod_unico":        { "type": "string", "nullable": true, "comment": "PK concatenation (icao_code)" },
-        "Op":               { "type": "string", "nullable": true, "comment": "DMS CDC operation (I/U/D)" }
+        "cod_unique":        { "type": "string", "nullable": true, "comment": "PK concatenation (icao_code)" },
+        "cdc_operation":               { "type": "string", "nullable": true, "comment": "CDC operation (I/U/D)" }
       },
       "primary_key": ["icao_code"],
-      "cod_unico_expr": { "columns": ["icao_code"], "separator": "_" },
+      "cod_unique_expr": { "columns": ["icao_code"], "separator": "_" },
       "enum_columns": {}
     }
   },
@@ -111,11 +111,11 @@
         "country":     { "type": "string", "nullable": true, "comment": "Country of incorporation" },
         "is_active":   { "type": "boolean", "nullable": false, "comment": "Is the airline active?" },
         "created_at":  { "type": "timestamp", "nullable": false, "comment": "Record creation timestamp" },
-        "cod_unico":   { "type": "string", "nullable": true, "comment": "PK concatenation (icao_code)" },
-        "Op":          { "type": "string", "nullable": true, "comment": "DMS CDC operation (I/U/D)" }
+        "cod_unique":   { "type": "string", "nullable": true, "comment": "PK concatenation (icao_code)" },
+        "cdc_operation":          { "type": "string", "nullable": true, "comment": "CDC operation (I/U/D)" }
       },
       "primary_key": ["icao_code"],
-      "cod_unico_expr": { "columns": ["icao_code"], "separator": "_" },
+      "cod_unique_expr": { "columns": ["icao_code"], "separator": "_" },
       "enum_columns": {}
     }
   },
@@ -137,7 +137,7 @@
       "rejected_location": "s3://lakehouse-landing-{account_id}/tables/tbl_flights/Rejected/",
       "format": "delta",
       "compression": "snappy",
-      "partition_keys": [{ "name": "event_date", "type": "date" }],
+      "partition_keys": [{ "name": "event_date", "type": "date", "source_column": "scheduled_departure" }],
       "schema": {
         "flight_id":           { "type": "bigint", "nullable": false, "comment": "Flight ID (PK)" },
         "flight_number":       { "type": "string", "nullable": false, "comment": "Flight number (e.g. AA1234)" },
@@ -152,11 +152,11 @@
         "status":              { "type": "string", "nullable": false, "comment": "Flight status (scheduled, active, landed, cancelled, diverted)" },
         "created_at":          { "type": "timestamp", "nullable": false, "comment": "Record creation timestamp" },
         "updated_at":          { "type": "timestamp", "nullable": false, "comment": "Record last update timestamp" },
-        "cod_unico":           { "type": "string", "nullable": true, "comment": "PK concatenation (flight_id)" },
-        "Op":                  { "type": "string", "nullable": true, "comment": "DMS CDC operation (I/U/D)" }
+        "cod_unique":           { "type": "string", "nullable": true, "comment": "PK concatenation (flight_id)" },
+        "cdc_operation":                  { "type": "string", "nullable": true, "comment": "CDC operation (I/U/D)" }
       },
       "primary_key": ["flight_id"],
-      "cod_unico_expr": { "columns": ["flight_id"], "separator": "_" },
+      "cod_unique_expr": { "columns": ["flight_id"], "separator": "_" },
       "enum_columns": {
         "status": ["scheduled", "active", "landed", "cancelled", "diverted"]
       }
@@ -180,7 +180,7 @@
       "rejected_location": "s3://lakehouse-landing-{account_id}/tables/tbl_aircraft_positions/Rejected/",
       "format": "delta",
       "compression": "snappy",
-      "partition_keys": [{ "name": "event_date", "type": "date" }],
+      "partition_keys": [{ "name": "aircraft_icao24", "type": "string" }],
       "schema": {
         "position_id":      { "type": "bigint", "nullable": false, "comment": "Position ID (PK)" },
         "aircraft_icao24":  { "type": "string", "nullable": false, "comment": "Aircraft ICAO24 address (FK → aircraft)" },
@@ -194,12 +194,12 @@
         "on_ground":        { "type": "boolean", "nullable": false, "comment": "Is the aircraft on ground?" },
         "recorded_at":       { "type": "timestamp", "nullable": false, "comment": "Position recording timestamp" },
         "ingested_at":       { "type": "timestamp", "nullable": false, "comment": "Ingestion timestamp" },
-        "Op":               { "type": "string", "nullable": true, "comment": "DMS CDC operation (I/U/D)" },
-        "dms_timestamp":     { "type": "timestamp", "nullable": true, "comment": "DMS capture timestamp" },
-        "cod_unico":         { "type": "string", "nullable": true, "comment": "PK concatenation (position_id_recorded_at)" }
+        "cdc_operation":               { "type": "string", "nullable": true, "comment": "CDC operation (I/U/D)" },
+        "cdc_timestamp":     { "type": "timestamp", "nullable": true, "comment": "CDC capture timestamp" },
+        "cod_unique":         { "type": "string", "nullable": true, "comment": "PK concatenation (position_id_recorded_at)" }
       },
       "primary_key": ["position_id", "recorded_at"],
-      "cod_unico_expr": { "columns": ["position_id", "recorded_at"], "separator": "_" },
+      "cod_unique_expr": { "columns": ["position_id", "recorded_at"], "separator": "_" },
       "enum_columns": {}
     }
   },
@@ -228,11 +228,11 @@
         "name":            { "type": "string", "nullable": false, "comment": "Country name" },
         "continent":       { "type": "string", "nullable": true, "comment": "Continent code" },
         "wikipedia_link":  { "type": "string", "nullable": true, "comment": "Wikipedia page URL" },
-        "cod_unico":       { "type": "string", "nullable": true, "comment": "PK concatenation (id)" },
-        "Op":              { "type": "string", "nullable": true, "comment": "DMS CDC operation (I/U/D)" }
+        "cod_unique":       { "type": "string", "nullable": true, "comment": "PK concatenation (id)" },
+        "cdc_operation":              { "type": "string", "nullable": true, "comment": "CDC operation (I/U/D)" }
       },
       "primary_key": ["id"],
-      "cod_unico_expr": { "columns": ["id"], "separator": "_" },
+      "cod_unique_expr": { "columns": ["id"], "separator": "_" },
       "enum_columns": {}
     }
   },
@@ -260,11 +260,11 @@
         "iata_code":       { "type": "string", "nullable": true, "comment": "IATA aircraft type code (e.g. 738, 320)" },
         "name":            { "type": "string", "nullable": false, "comment": "Aircraft model name" },
         "manufacturer":    { "type": "string", "nullable": true, "comment": "Manufacturer name" },
-        "cod_unico":       { "type": "string", "nullable": true, "comment": "PK concatenation (icao_code)" },
-        "Op":              { "type": "string", "nullable": true, "comment": "DMS CDC operation (I/U/D)" }
+        "cod_unique":       { "type": "string", "nullable": true, "comment": "PK concatenation (icao_code)" },
+        "cdc_operation":              { "type": "string", "nullable": true, "comment": "CDC operation (I/U/D)" }
       },
       "primary_key": ["icao_code"],
-      "cod_unico_expr": { "columns": ["icao_code"], "separator": "_" },
+      "cod_unique_expr": { "columns": ["icao_code"], "separator": "_" },
       "enum_columns": {}
     }
   },
@@ -300,11 +300,11 @@
         "equipment":        { "type": "string", "nullable": true, "comment": "ICAO aircraft type codes" },
         "duration_minutes": { "type": "int", "nullable": true, "comment": "Route duration in minutes" },
         "created_at":       { "type": "timestamp", "nullable": false, "comment": "Record creation timestamp" },
-        "cod_unico":        { "type": "string", "nullable": true, "comment": "PK concatenation (id)" },
-        "Op":               { "type": "string", "nullable": true, "comment": "DMS CDC operation (I/U/D)" }
+        "cod_unique":        { "type": "string", "nullable": true, "comment": "PK concatenation (id)" },
+        "cdc_operation":               { "type": "string", "nullable": true, "comment": "CDC operation (I/U/D)" }
       },
       "primary_key": ["id"],
-      "cod_unico_expr": { "columns": ["id"], "separator": "_" },
+      "cod_unique_expr": { "columns": ["id"], "separator": "_" },
       "enum_columns": {}
     }
   }

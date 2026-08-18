@@ -34,11 +34,11 @@ def flights_target():
             "flight_id": SchemaField(type="bigint", nullable=False, comment="PK"),
             "airline_code": SchemaField(type="string", nullable=True, comment="IATA"),
             "status": SchemaField(type="string", nullable=True, comment="Status"),
-            "dms_timestamp": SchemaField(type="timestamp", nullable=True, comment="CDC ts"),
+            "cdc_timestamp": SchemaField(type="timestamp", nullable=True, comment="CDC ts"),
         },
         primary_key=["flight_id"],
         enum_columns={"status": ["scheduled", "active", "landed", "cancelled", "diverted", "unknown"],
-                      "Op": ["I", "U", "D"]},
+                      "cdc_operation": ["I", "U", "D"]},
     )
 
 

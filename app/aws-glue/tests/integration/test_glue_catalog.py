@@ -48,7 +48,7 @@ class TestGlueCatalogTables:
             "origin_airport", "destination_airport",
             "scheduled_departure", "scheduled_arrival",
             "actual_departure", "actual_arrival",
-            "status", "created_at", "updated_at", "cod_unico",
+            "status", "created_at", "updated_at", "cod_unique",
         ]
         for col in expected_cols:
             assert col in col_names, f"Column '{col}' not found in flights table"

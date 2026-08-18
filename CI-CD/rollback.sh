@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 #===============================================================================
 # rollback.sh
-# Destroy the AWS environment for the Glue DMS CDC pipeline.
+# Destroy the AWS environment for the Glue CDC pipeline.
 #
 # Usage:
 #   ./ci-cd/rollback.sh                # default environment (prod)
@@ -107,7 +107,7 @@ main() {
 
     echo ""
     echo "═══════════════════════════════════════════════════════════════"
-    echo "  Rollback - Glue DMS CDC Pipeline"
+    echo "  Rollback - Glue CDC Pipeline"
     echo "  Environment: ${ENV} | Region: ${REGION}"
     echo "═══════════════════════════════════════════════════════════════"
     echo ""

@@ -32,7 +32,7 @@ logging.basicConfig(
 def _parse_args(argv: Optional[list[str]] = None) -> argparse.Namespace:
     """Parse command line arguments."""
     parser = argparse.ArgumentParser(
-        description="Glue Job — Multi-table Batch + Streaming DMS CDC",
+        description="Glue Job — Multi-table Batch + Streaming CDC",
     )
     parser.add_argument(
         "--config_s3_path",

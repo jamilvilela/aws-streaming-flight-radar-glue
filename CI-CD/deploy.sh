@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 #===============================================================================
 # deploy.sh
-# Provision the AWS environment for the Glue DMS CDC pipeline.
+# Provision the AWS environment for the Glue CDC pipeline.
 #
 # Usage:
 #   ./ci-cd/deploy.sh                 # default environment (prod)
@@ -121,7 +121,7 @@ main() {
 
     echo ""
     echo "═══════════════════════════════════════════════════════════════"
-    echo "  Deploy - Glue DMS CDC Pipeline"
+    echo "  Deploy - Glue CDC Pipeline"
     echo "  Environment: ${ENV} | Region: ${REGION}"
     echo "═══════════════════════════════════════════════════════════════"
     echo ""

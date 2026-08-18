@@ -62,14 +62,14 @@ def flights_source(account_id, raw_bucket):
             "airline_icao": SchemaField(type="string", nullable=True, comment="ICAO"),
             "flight_number": SchemaField(type="string", nullable=True, comment="Number"),
             "status": SchemaField(type="string", nullable=True, comment="Status"),
-            "dms_timestamp": SchemaField(type="timestamp", nullable=True, comment="CDC ts"),
-            "Op": SchemaField(type="string", nullable=True, comment="CDC op"),
+            "cdc_timestamp": SchemaField(type="timestamp", nullable=True, comment="CDC ts"),
+            "cdc_operation": SchemaField(type="string", nullable=True, comment="CDC op"),
         },
         primary_key=["flight_id"],
-        cod_unico_expr={"columns": ["flight_id"], "separator": "_"},
+        cod_unique_expr={"columns": ["flight_id"], "separator": "_"},
         enum_columns={
             "status": ["scheduled", "active", "landed", "cancelled", "diverted", "unknown"],
-            "Op": ["I", "U", "D"],
+            "cdc_operation": ["I", "U", "D"],
         },
     )
     return SourceConfig(
@@ -122,7 +122,7 @@ class TestPipelineE2E:
         assert raw_df.count() >= 10, f"Expected >= 10 rows, got {raw_df.count()}"
 
         assert "event_date" in raw_df.columns
-        assert "cod_unico" in raw_df.columns
+        assert "cod_unique" in raw_df.columns
 
     def test_pipeline_with_rejected_data(self, spark, flights_source):
         """Invalid rows should be rejected and never reach the Delta table."""

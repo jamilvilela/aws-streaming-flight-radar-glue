@@ -40,11 +40,11 @@ def flights_target():
             "flight_id": SchemaField(type="bigint", nullable=False, comment="PK"),
             "airline_code": SchemaField(type="string", nullable=True, comment="IATA"),
             "status": SchemaField(type="string", nullable=True, comment="Status"),
-            "dms_timestamp": SchemaField(type="timestamp", nullable=True, comment="CDC ts"),
+            "cdc_timestamp": SchemaField(type="timestamp", nullable=True, comment="CDC ts"),
         },
         primary_key=["flight_id"],
         enum_columns={"status": ["active", "landed"]},
-        cod_unico_expr={"columns": ["flight_id"], "separator": "_"},
+        cod_unique_expr={"columns": ["flight_id"], "separator": "_"},
     )
 
 

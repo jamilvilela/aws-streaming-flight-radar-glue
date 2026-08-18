@@ -71,7 +71,7 @@ class Processor:
         Execute the full processing pipeline for a given source/target.
 
         Args:
-            source: SourceConfig describing the DMS origin.
+            source: SourceConfig describing the source origin.
             target: TargetConfig describing the destination table.
             mode: ``\"streaming\"`` (default) or ``\"batch\"``.
             dataframe: Optional pre-read DataFrame. When provided in batch

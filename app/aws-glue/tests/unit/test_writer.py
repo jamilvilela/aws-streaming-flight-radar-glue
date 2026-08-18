@@ -3,7 +3,7 @@ Unit tests for writer.py — Writer class for Delta Lake writing.
 
 Early-return and wiring paths are tested with mocked DataFrames (no JVM
 required). The tests that exercise real Spark SQL (partition extraction and
-cod_unico generation) use the shared ``spark`` fixture, which skips cleanly
+cod_unique generation) use the shared ``spark`` fixture, which skips cleanly
 when no JVM is available and runs fully in CI/Glue.
 """
 
@@ -41,11 +41,11 @@ def flights_target():
             "flight_id": SchemaField(type="bigint", nullable=False, comment="PK"),
             "airline_code": SchemaField(type="string", nullable=True, comment="IATA"),
             "status": SchemaField(type="string", nullable=True, comment="Status"),
-            "dms_timestamp": SchemaField(type="timestamp", nullable=True, comment="CDC ts"),
+            "cdc_timestamp": SchemaField(type="timestamp", nullable=True, comment="CDC ts"),
         },
         primary_key=["flight_id"],
         enum_columns={"status": ["active"]},
-        cod_unico_expr={"columns": ["flight_id"], "separator": "_"},
+        cod_unique_expr={"columns": ["flight_id"], "separator": "_"},
     )
 
 
@@ -91,6 +91,32 @@ class TestWriter:
         assert result is df
         df.withColumn.assert_not_called()
 
+    def test_prepare_partitions_from_source_column(self, spark, flights_source):
+        """_prepare_with_partitions should derive event_date from a source_column."""
+        from datetime import datetime
+        flights_target = TargetConfig(
+            catalog={"database": "db_raw", "table": "tbl_flights"},
+            location="s3://raw/tables/tbl_flights/",
+            rejected_location="s3://landing/dms/flightradar/flight_radar/Rejected/",
+            format="delta",
+            compression="snappy",
+            partition_keys=[PartitionKey("event_date", "date", source_column="scheduled_departure")],
+            schema={},
+            primary_key=["flight_id"],
+            enum_columns={},
+            cod_unique_expr={"columns": ["flight_id"], "separator": "_"},
+        )
+        row = (1, datetime(2026, 6, 30, 8, 30, 0))
+        schema = StructType([
+            StructField("flight_id", LongType(), True),
+            StructField("scheduled_departure", TimestampType(), True),
+        ])
+        df = spark.createDataFrame([row], schema)
+
+        result = Writer._prepare_with_partitions(df, flights_target, flights_source)
+        assert "event_date" in result.columns
+        assert str(result.collect()[0].event_date) == "2026-06-30"
+
     def test_write_rejects_empty(self, writer, flights_target):
         """Writing empty rejects should do nothing."""
         df = MagicMock()
@@ -104,23 +130,23 @@ class TestWriter:
         # Should not raise (returns early for empty df)
         writer.write(df, flights_target, flights_source)
 
-    def test_generate_cod_unico_from_pk(self, spark, flights_target):
-        """_generate_cod_unico should create cod_unico from PK columns."""
+    def test_generate_cod_unique_from_pk(self, spark, flights_target):
+        """_generate_cod_unique should create cod_unique from PK columns."""
         rows = [(1, "AA")]
         schema = StructType([
             StructField("flight_id", LongType(), True),
             StructField("airline_code", StringType(), True),
         ])
         df = spark.createDataFrame(rows, schema)
-        result = Writer._generate_cod_unico(df, flights_target)
-        assert "cod_unico" in result.columns
-        assert result.collect()[0].cod_unico == "1"
+        result = Writer._generate_cod_unique(df, flights_target)
+        assert "cod_unique" in result.columns
+        assert result.collect()[0].cod_unique == "1"
 
-    def test_generate_cod_unico_skips_existing(self, writer, flights_target):
-        """_generate_cod_unico should skip if cod_unico already exists."""
+    def test_generate_cod_unique_skips_existing(self, writer, flights_target):
+        """_generate_cod_unique should skip if cod_unique already exists."""
         df = MagicMock()
-        df.columns = ["flight_id", "cod_unico"]
-        result = writer._generate_cod_unico(df, flights_target)
+        df.columns = ["flight_id", "cod_unique"]
+        result = writer._generate_cod_unique(df, flights_target)
         assert result is df
         df.withColumn.assert_not_called()
 
@@ -164,7 +190,7 @@ class TestWriter:
         """A non-Delta location should be bootstrapped and skip the MERGE."""
         df = MagicMock()
         df.isEmpty.return_value = False
-        df.columns = ["flight_id", "event_date", "cod_unico", CDC_OP_COLUMN]
+        df.columns = ["flight_id", "event_date", "cod_unique", CDC_OP_COLUMN]
         df.select.return_value = df
         df.withColumnRenamed.return_value = df
         df.withColumn.return_value = df
@@ -181,13 +207,13 @@ class TestWriter:
         """When the location is already a Delta table, resolve by path and MERGE."""
         df = MagicMock()
         df.isEmpty.return_value = False
-        df.columns = ["flight_id", "event_date", "cod_unico", CDC_OP_COLUMN]
+        df.columns = ["flight_id", "event_date", "cod_unique", CDC_OP_COLUMN]
         df.select.return_value = df
         df.withColumnRenamed.return_value = df
         df.withColumn.return_value = df
 
         delta_table_mock = MagicMock()
-        delta_table_mock.toDF.return_value.columns = ["flight_id", "event_date", "cod_unico", CDC_OP_COLUMN]
+        delta_table_mock.toDF.return_value.columns = ["flight_id", "event_date", "cod_unique", CDC_OP_COLUMN]
 
         with patch("src.dependencies.writer.DeltaTable.isDeltaTable", return_value=True) as mock_is_delta, \
              patch("src.dependencies.writer.DeltaTable.forPath", return_value=delta_table_mock) as mock_for_path, \

@@ -42,11 +42,17 @@ class TestPartitionKey:
         pk = PartitionKey(name="year", type="string")
         assert pk.name == "year"
         assert pk.type == "string"
+        assert pk.source_column is None
 
     def test_to_dict(self):
         pk = PartitionKey(name="month", type="string")
         d = pk.to_dict()
         assert d == {"name": "month", "type": "string"}
+
+    def test_to_dict_with_source_column(self):
+        pk = PartitionKey(name="event_date", type="date", source_column="scheduled_departure")
+        d = pk.to_dict()
+        assert d == {"name": "event_date", "type": "date", "source_column": "scheduled_departure"}
 
 
 class TestCdcConfig:
@@ -120,13 +126,13 @@ class TestTargetConfig:
             schema=self.SAMPLE_SCHEMA,
             primary_key=["icao24", "event_time"],
             enum_columns={"status": ["active", "landed"]},
-        cod_unico_expr={"columns": ["icao24", "event_time"], "separator": "_"},
+        cod_unique_expr={"columns": ["icao24", "event_time"], "separator": "_"},
         )
         d = cfg.to_dict()
         assert d["catalog"]["database"] == "db_raw"
         assert d["primary_key"] == ["icao24", "event_time"]
         assert d["enum_columns"]["status"] == ["active", "landed"]
-        assert d["cod_unico_expr"] == {"columns": ["icao24", "event_time"], "separator": "_"}
+        assert d["cod_unique_expr"] == {"columns": ["icao24", "event_time"], "separator": "_"}
         assert len(d["partition_keys"]) == 1
         assert d["partition_keys"][0]["name"] == "event_date"
 
@@ -155,7 +161,7 @@ class TestConfig:
                 "latitude": {"type": "double", "nullable": True, "comment": "Latitude"},
             },
             "primary_key": ["icao24", "event_time"],
-            "cod_unico_expr": {"columns": ["icao24", "event_time"], "separator": "_"},
+            "cod_unique_expr": {"columns": ["icao24", "event_time"], "separator": "_"},
             "enum_columns": {},
         },
     }

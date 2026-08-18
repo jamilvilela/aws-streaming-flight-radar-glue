@@ -1,5 +1,5 @@
 """
-Reader module — Reads source data from S3 (DMS Parquet CDC).
+Reader module — Reads source data from S3 (Parquet CDC).
 
 Uses Spark readStream with checkpoint-based fault-tolerance.
 No Glue-specific APIs are used.
@@ -22,7 +22,7 @@ class ReaderError(Exception):
 
 class Reader:
     """
-    Reads Parquet data from S3 (DMS CDC) using Spark readStream.
+    Reads Parquet data from S3 (CDC) using Spark readStream.
 
     Supports:
     - Streaming reads via Spark readStream with S3 checkpointing
@@ -50,7 +50,7 @@ class Reader:
         ``source.source_location`` (the full-load path).
 
         Args:
-            source: SourceConfig describing the DMS origin to read from.
+            source: SourceConfig describing the source origin to read from.
             mode: ``"streaming"`` (default) or ``"batch"``.
 
         Returns:
@@ -82,9 +82,9 @@ class Reader:
         """
         Read data in streaming mode using Spark readStream.
 
-        Uses ``cdc_source_location`` — the CDC-only prefix written by
-        DMS via the ``CdcPath`` parameter. ``includeExistingFiles=false``
-        ensures already-processed full-load files are not re-read.
+        Uses ``cdc_source_location`` — the CDC-only prefix. The
+        ``includeExistingFiles=false`` option ensures already-processed
+        full-load files are not re-read.
         """
         cdc_path = source.cdc_source_location or source.source_location
         archive_path = cdc_path.rstrip("/") + "_archive/"

@@ -2,9 +2,9 @@
 Integration tests — S3 Landing bucket structure validation.
 
 Validates that the expected bucket, folders, and sample files exist
-in the lakehouse-landing S3 bucket for the DMS CDC pipeline.
+in the lakehouse-landing S3 bucket for the CDC pipeline.
 
-DMS writes to ``dms/flightradar/flight_radar/<table>/`` (full load) and
+Data lands in ``dms/flightradar/flight_radar/<table>/`` (full load) and
 monthly folders ``aircraft_positions_<YYYY>_<MM>/`` for the positions table.
 
 All tests are marked @pytest.mark.integration.
@@ -19,7 +19,7 @@ LANDING_PREFIX = "dms/flightradar/flight_radar/"
 
 @pytest.mark.integration
 class TestS3LandingStructure:
-    """Validate the landing bucket structure for DMS CDC data."""
+    """Validate the landing bucket structure for CDC data."""
 
     def test_bucket_exists(self, s3_client, landing_bucket):
         """The landing bucket must exist and be accessible."""
@@ -68,7 +68,7 @@ class TestS3LandingStructure:
         assert found_parquet, f"No .parquet files found in {LANDING_PREFIX}aircraft/"
 
     def test_monthly_partition_folders_exist(self, s3_client, landing_bucket):
-        """DMS monthly partition folders (aircraft_positions_YYYY_MM) should exist."""
+        """Monthly partition folders (aircraft_positions_YYYY_MM) should exist."""
         paginator = s3_client.get_paginator("list_objects_v2")
         pages = paginator.paginate(
             Bucket=landing_bucket,

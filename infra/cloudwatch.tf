@@ -6,11 +6,10 @@
 
 resource "aws_cloudwatch_event_rule" "full_load_complete" {
   name        = "${local.glue_full_load_job_name}-complete"
-  description = "Triggered when DMS full load completes for flight_radar"
+  description = "Triggered when the full load completes for flight_radar"
 
-  # DMS não emite detail-type "DMS Full Load Completed". O evento real de
-  # full load concluído é "DMS Replication Task State Change" com
-  # eventType REPLICATION_TASK_STOPPED / detailMessage "Stop Reason FULL_LOAD_ONLY_FINISHED".
+  # The full load completion is signalled by a replication task state change
+  # event (REPLICATION_TASK_STOPPED / detailMessage "Stop Reason FULL_LOAD_ONLY_FINISHED").
   event_pattern = jsonencode({
     source      = ["aws.dms"]
     detail-type = ["DMS Replication Task State Change"]
