@@ -14,6 +14,7 @@ A DynamoDB lock row (keyed by the task ARN) guarantees a single start.
 
 import json
 import os
+from typing import Optional
 
 import boto3
 from botocore.exceptions import ClientError
@@ -31,7 +32,7 @@ _FULL_LOAD_DONE = {
 }
 
 
-def _find_task() -> dict | None:
+def _find_task() -> Optional[dict]:
     """Return the DMS replication task whose full-load phase must be watched."""
     if DMS_TASK_ARN:
         resp = dms.describe_replication_tasks(
