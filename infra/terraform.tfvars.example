@@ -61,7 +61,7 @@ glue_connections = []
 # Lambda polls this task and starts the Glue workflow once the full-load phase
 # completes. Leave empty only if there is a single replication task in the
 # account.
-# dms_replication_task_arn = "arn:aws:dms:us-east-1:123456789012:task:abcdef0123456789"
+# dms_replication_config_arn = "arn:aws:dms:us-east-1:123456789012:replication-config:WSZHAU45PFBRJGKLKMLPPGQBYU"
 
 # Minutes between full-load completion checks (default 5).
 # full_load_check_interval = 5

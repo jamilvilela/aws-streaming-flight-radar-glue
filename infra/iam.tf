@@ -251,10 +251,10 @@ resource "aws_iam_role_policy" "lambda_glue_starter" {
       {
         Effect = "Allow"
         Action = [
-          "dms:DescribeReplicationTasks",
+          "dms:DescribeReplications",
         ]
         Resource = [
-          var.dms_replication_task_arn != "" ? var.dms_replication_task_arn : "*",
+          var.dms_replication_config_arn != "" ? var.dms_replication_config_arn : "*",
         ]
       },
       {

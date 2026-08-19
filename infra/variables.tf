@@ -116,8 +116,8 @@ variable "glue_job_timeout" {
   default     = 2880
 }
 
-variable "dms_replication_task_arn" {
-  description = "ARN of the DMS replication task that loads flight_radar. Used by the batch-starter Lambda to check full-load completion. Leave empty to auto-detect the single task in the account."
+variable "dms_replication_config_arn" {
+  description = "ARN of the DMS Serverless replication config that loads flight_radar. Used by the batch-starter Lambda to check full-load completion. Leave empty to auto-detect the single replication in the account."
   type        = string
   default     = ""
 }

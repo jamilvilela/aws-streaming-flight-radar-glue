@@ -292,7 +292,7 @@ sequenceDiagram
 
     loop A cada {interval} min
         SCHED->>Lambda: InvokeFunction (rate)
-        Lambda->>DMS: describe_replication_tasks
+        Lambda->>DMS: describe_replications
         alt Full load completo (100% e 0 tabelas carregando)
             Lambda->>LOCK: put_item (attribute_not_exists task_arn)
             LOCK-->>Lambda: lock adquirido (disparo único)

@@ -21,9 +21,9 @@ resource "aws_lambda_function" "glue_starter" {
 
   environment {
     variables = {
-      GLUE_WORKFLOW_NAME       = "${local.glue_full_load_job_name}-workflow"
-      DMS_REPLICATION_TASK_ARN = var.dms_replication_task_arn
-      DMS_WORKFLOW_LOCK_TABLE  = aws_dynamodb_table.workflow_lock.name
+      GLUE_WORKFLOW_NAME         = "${local.glue_full_load_job_name}-workflow"
+      DMS_REPLICATION_CONFIG_ARN = var.dms_replication_config_arn
+      DMS_WORKFLOW_LOCK_TABLE    = aws_dynamodb_table.workflow_lock.name
     }
   }
 

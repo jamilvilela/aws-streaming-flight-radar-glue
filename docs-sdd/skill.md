@@ -47,7 +47,7 @@ flowchart TD
 
     DMS --> LAND
     SCHED --> LAMBDA
-    LAMBDA -->|describe_replication_tasks<br/>FullLoadProgressPercent==100| DMS
+    LAMBDA -->|describe_replications<br/>FullLoadProgressPercent==100| DMS
     LAMBDA -->|put_item<br/>attribute_not_exists| LOCK
     LAMBDA -->|start_workflow_run| WF
     WF --> ON_DEMAND

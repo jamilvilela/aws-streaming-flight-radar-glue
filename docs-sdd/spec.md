@@ -56,7 +56,7 @@ flowchart TD
 
     DMS --> LAND
     SCHED --> LAMBDA
-    LAMBDA -->|describe_replication_tasks<br/>FullLoadProgressPercent==100| DMS
+    LAMBDA -->|describe_replications<br/>FullLoadProgressPercent==100| DMS
     LAMBDA -->|put_item<br/>attribute_not_exists| LOCK
     LAMBDA -->|start_workflow_run| WF
     WF --> ON_DEMAND
@@ -155,7 +155,7 @@ flowchart TD
 ### 3.10. Lambda — `app/aws-lambda/start_workflow/start_glue_job.py`
 - Lives **outside** `app/aws-glue/src` (kept separate from the Glue job source)
 - Invoked on a **schedule** (EventBridge `rate()` rule) — polls the DMS replication task status
-- Queries `describe_replication_tasks` and starts the workflow only when the full-load phase completes (`FullLoadProgressPercent == 100` and `TablesLoading == 0`)
+- Queries `describe_replications` and starts the workflow only when the full-load phase completes (`FullLoadProgressPercent == 100` and `TablesLoading == 0`)
 - Uses a **DynamoDB lock** (`glue-flight-radar-workflow-lock`, conditional `attribute_not_exists` on the task ARN) to guarantee a single workflow start per full load
 - Starts the full-load Glue workflow via `glue.start_workflow_run()`
 - The workflow uses native Glue sequencing (on-demand + conditional triggers) to start streaming after the batch succeeds, avoiding polling and concurrent writes
@@ -305,7 +305,7 @@ sequenceDiagram
 
     loop A cada {interval} min
         SCHED->>Lambda: InvokeFunction (rate)
-        Lambda->>DMS: describe_replication_tasks
+        Lambda->>DMS: describe_replications
         alt Full load completo (100% e 0 tabelas carregando)
             Lambda->>LOCK: put_item (attribute_not_exists task_arn)
             LOCK-->>Lambda: lock adquirido (disparo único)

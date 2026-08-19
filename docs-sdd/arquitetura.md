@@ -146,7 +146,7 @@ flowchart TD
     AURO --> DMS
     DMS --> LAND
     SCHED --> LAMBDA
-    LAMBDA -->|describe_replication_tasks<br/>FullLoadProgressPercent==100| DMS
+    LAMBDA -->|describe_replications<br/>FullLoadProgressPercent==100| DMS
     LAMBDA -->|put_item<br/>attribute_not_exists| LOCK
     LAMBDA -->|start_workflow_run| WF
     WF --> ON_DEMAND
@@ -179,7 +179,7 @@ sequenceDiagram
 
     loop A cada {interval} min
         SCHED->>LAMBDA: InvokeFunction (rate)
-        LAMBDA->>DMS: describe_replication_tasks
+        LAMBDA->>DMS: describe_replications
         alt Full load completo (100% e 0 tabelas carregando)
             LAMBDA->>LOCK: put_item (attribute_not_exists task_arn)
             LOCK-->>LAMBDA: lock adquirido (disparo único)
