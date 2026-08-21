@@ -32,7 +32,6 @@ def flights_source():
 def flights_target():
     return TargetConfig(
         catalog={"database": "db_raw", "table": "tbl_flights"},
-        location="s3://raw/tables/tbl_flights/",
         rejected_location="s3://landing/dms/flightradar/flight_radar/Rejected/",
         format="delta",
         compression="snappy",
@@ -96,7 +95,6 @@ class TestWriter:
         from datetime import datetime
         flights_target = TargetConfig(
             catalog={"database": "db_raw", "table": "tbl_flights"},
-            location="s3://raw/tables/tbl_flights/",
             rejected_location="s3://landing/dms/flightradar/flight_radar/Rejected/",
             format="delta",
             compression="snappy",
@@ -182,12 +180,12 @@ class TestWriter:
             StructField("event_date", TimestampType(), True),
         ])
         df = spark.createDataFrame([row], schema)
-        with patch.object(df.write, "save") as mock_save:
-            Writer._bootstrap_table(df, flights_target, ["event_date"])
-            mock_save.assert_called_once_with("s3://raw/tables/tbl_flights/")
+        with patch.object(df.write, "insertInto") as mock_insert:
+            Writer._bootstrap_table(df, flights_target, ["event_date"], "db_raw.tbl_flights")
+            mock_insert.assert_called_once_with("db_raw.tbl_flights")
 
     def test_write_bootstraps_missing_delta_table(self, writer, flights_source, flights_target):
-        """A non-Delta location should be bootstrapped and skip the MERGE."""
+        """A non-Delta catalog table should be bootstrapped and skip the MERGE."""
         df = MagicMock()
         df.isEmpty.return_value = False
         df.columns = ["flight_id", "event_date", "cod_unique", CDC_OP_COLUMN]
@@ -195,16 +193,16 @@ class TestWriter:
         df.withColumnRenamed.return_value = df
         df.withColumn.return_value = df
 
-        with patch("src.dependencies.writer.DeltaTable.isDeltaTable", return_value=False) as mock_is_delta, \
+        with patch.object(writer, "_is_delta_table", return_value=False) as mock_is_delta, \
              patch.object(writer, "_bootstrap_table") as mock_bootstrap, \
-             patch("src.dependencies.writer.DeltaTable.forPath") as mock_for_path:
+             patch("src.dependencies.writer.DeltaTable.forName") as mock_for_name:
             writer.write(df, flights_target, flights_source)
-            mock_is_delta.assert_called_once_with(writer._spark, "s3://raw/tables/tbl_flights/")
+            mock_is_delta.assert_called_once_with("db_raw.tbl_flights")
             mock_bootstrap.assert_called_once()
-            mock_for_path.assert_not_called()
+            mock_for_name.assert_not_called()
 
     def test_write_merges_when_delta_table_exists(self, writer, flights_source, flights_target):
-        """When the location is already a Delta table, resolve by path and MERGE."""
+        """When the catalog table is already Delta, resolve by name and MERGE."""
         df = MagicMock()
         df.isEmpty.return_value = False
         df.columns = ["flight_id", "event_date", "cod_unique", CDC_OP_COLUMN]
@@ -215,10 +213,10 @@ class TestWriter:
         delta_table_mock = MagicMock()
         delta_table_mock.toDF.return_value.columns = ["flight_id", "event_date", "cod_unique", CDC_OP_COLUMN]
 
-        with patch("src.dependencies.writer.DeltaTable.isDeltaTable", return_value=True) as mock_is_delta, \
-             patch("src.dependencies.writer.DeltaTable.forPath", return_value=delta_table_mock) as mock_for_path, \
+        with patch.object(writer, "_is_delta_table", return_value=True) as mock_is_delta, \
+             patch("src.dependencies.writer.DeltaTable.forName", return_value=delta_table_mock) as mock_for_name, \
              patch.object(writer, "_bootstrap_table") as mock_bootstrap:
             writer.write(df, flights_target, flights_source)
-            mock_is_delta.assert_called_once_with(writer._spark, "s3://raw/tables/tbl_flights/")
+            mock_is_delta.assert_called_once_with("db_raw.tbl_flights")
             mock_bootstrap.assert_not_called()
-            mock_for_path.assert_called_once_with(writer._spark, "s3://raw/tables/tbl_flights/")
+            mock_for_name.assert_called_once_with(writer._spark, "db_raw.tbl_flights")

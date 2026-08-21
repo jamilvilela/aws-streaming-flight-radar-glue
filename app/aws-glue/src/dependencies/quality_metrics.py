@@ -1,6 +1,7 @@
 """
 QualityMetrics module — Saves data quality metrics to the
-data_quality_metrics table (Parquet in the raw layer).
+data_quality_metrics table (Parquet in the raw layer, resolved via
+the Glue Data Catalog).
 """
 
 from __future__ import annotations
@@ -25,7 +26,8 @@ class QualityMetrics:
     Persists quality metrics for each pipeline execution.
 
     Metrics include rows_read, rows_written, rows_rejected, and
-    overall pipeline_status — all stored partitioned by reference_date.
+    overall pipeline_status — all stored partitioned by reference_date
+    in the ``db_raw.data_quality_metrics`` catalog table.
     """
 
     def __init__(self, spark: SparkSession):
@@ -83,24 +85,15 @@ class QualityMetrics:
                 ],
             )
 
-            path = self._resolve_path()
             (
                 df.write
                 .mode("append")
-                .format("parquet")
-                .partitionBy("reference_date")
-                .option("compression", "snappy")
-                .save(path)
+                .saveAsTable("db_raw.data_quality_metrics")
             )
             logger.info("Quality metrics saved to data_quality_metrics")
         except Exception as exc:
             logger.warning("Failed to save quality metrics: %s", exc)
 
-
-    def _resolve_path(self) -> str:
-        """Resolve the S3 path for the data_quality_metrics table."""
-        account_id = self._get_account_id()
-        return f"s3://lakehouse-raw-{account_id}/tables/data_quality_metrics/"
 
     @staticmethod
     def _build_partition_value(target: TargetConfig) -> str:
@@ -108,12 +101,3 @@ class QualityMetrics:
         if not target.partition_keys:
             return ""
         return "/".join(f"{pk.name}=" for pk in target.partition_keys)
-
-    @staticmethod
-    def _get_account_id() -> str:
-        """Try to get the AWS account ID from boto3 or environment."""
-        try:
-            import boto3
-            return boto3.client("sts").get_caller_identity()["Account"]
-        except Exception:
-            return "000000000000"

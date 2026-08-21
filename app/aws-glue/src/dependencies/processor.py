@@ -13,6 +13,7 @@ import time
 import uuid
 from typing import Optional
 
+from pyspark import StorageLevel
 from pyspark.sql import DataFrame, SparkSession
 
 from .config import SourceConfig, TargetConfig
@@ -96,25 +97,39 @@ class Processor:
         start_time = time.time()
         pipeline_status = "running"
         exc: Optional[Exception] = None
+        cached_frames: list[DataFrame] = []
 
         try:
             # 1. Read (skip if a pre-read dataframe was provided in batch mode)
             if dataframe is not None and is_batch:
                 raw_df = dataframe
-                self._records_read = raw_df.count()
             else:
                 raw_df = self._reader.read(source, mode=mode)
+            if is_batch:
+                raw_df = raw_df.persist(StorageLevel.MEMORY_AND_DISK)
+                cached_frames.append(raw_df)
+                self._records_read = raw_df.count()
+            else:
                 self._records_read = 0 if self._is_streaming(raw_df) else raw_df.count()
             logger.info("Read %d records from %s (%s)", self._records_read, source.source, mode)
 
             # 2. Validate
             valid_df, rejects_df = self._data_quality.validate(raw_df, target, source)
-            self._records_rejected = 0
-            if not rejects_df.isEmpty():
+            if is_batch:
+                valid_df = valid_df.persist(StorageLevel.MEMORY_AND_DISK)
+                rejects_df = rejects_df.persist(StorageLevel.MEMORY_AND_DISK)
+                cached_frames.extend((valid_df, rejects_df))
                 self._records_rejected = rejects_df.count()
-            if is_batch and not valid_df.isEmpty():
                 self._records_written = valid_df.count()
+            elif not self._is_streaming(raw_df):
+                self._records_rejected = 0
+                if not rejects_df.isEmpty():
+                    self._records_rejected = rejects_df.count()
+                self._records_written = 0
+                if not valid_df.isEmpty():
+                    self._records_written = valid_df.count()
             else:
+                self._records_rejected = 0
                 self._records_written = max(0, self._records_read - self._records_rejected)
             logger.info(
                 "Validation complete: %d valid, %d rejected",
@@ -138,13 +153,17 @@ class Processor:
             raise ProcessorError(f"Pipeline failed for '{source.source}': {exc}") from exc
 
         finally:
-            elapsed = time.time() - start_time
-            self._register_execution(
-                status=pipeline_status,
-                elapsed_seconds=elapsed,
-                error_message=str(exc) if pipeline_status == "failed" else None,
-            )
-            self._save_quality_metrics(pipeline_status)
+            try:
+                elapsed = time.time() - start_time
+                self._register_execution(
+                    status=pipeline_status,
+                    elapsed_seconds=elapsed,
+                    error_message=str(exc) if pipeline_status == "failed" else None,
+                )
+                self._save_quality_metrics(pipeline_status)
+            finally:
+                for cached_frame in cached_frames:
+                    cached_frame.unpersist()
 
 
     def _register_execution(

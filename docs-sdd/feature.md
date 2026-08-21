@@ -53,7 +53,7 @@ Each source carries a full-load prefix (`source_location`) and a CDC-only prefix
 
 ## 4. Destination Tables (embedded in config.json)
 
-Each of the 8 sources carries an embedded `target` definition (catalog, location, schema, partition, PK). Summary:
+Each of the 8 sources carries an embedded `target` definition (catalog, schema, partition, PK). Summary:
 
 | Source | Target table | Partition | PK |
 |--------|-------------|-----------|-----|
@@ -236,7 +236,7 @@ flowchart TD
 - Bucket S3 `lakehouse-landing-{account_id}` com dados DMS das tabelas do `flight_radar`
 - Bucket S3 `lakehouse-raw-{account_id}` para escrita
 - Bucket S3 `lakehouse-workspace-{account_id}` para scripts, configs e checkpoints
-- Role IAM `role-datalake-analytics`
+- Role IAM `role-glue-job-flight-radar` (dedicada, criada pelo módulo `infra/`)
 - Default VPC com subnets privadas e security group default
 - KMS key para criptografia (criada pelo módulo `infra/`)
 - Glue Catalog database `db_raw` (já existe no Data Lake, não é criado pelo módulo `infra/`)

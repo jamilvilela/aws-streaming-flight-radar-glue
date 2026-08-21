@@ -68,12 +68,13 @@ class TargetConfig:
     Configuration for the target Data Lake table.
 
     Embedded inside each source entry in config.json, it holds the
-    catalog reference, storage location, schema, partition keys and
-    primary key used to write to the raw layer.
+    Glue Data Catalog reference, schema, partition keys and primary
+    key used to write to the raw layer. The table itself is resolved
+    through the Glue Data Catalog (database.table), never by S3 path;
+    ``rejected_location`` is a plain storage area for rejected records.
     """
 
     catalog: Dict[str, str] = field(default_factory=dict)
-    location: str = ""
     rejected_location: str = ""
     format: str = "delta"
     compression: str = "snappy"
@@ -94,7 +95,6 @@ class TargetConfig:
     def to_dict(self) -> Dict[str, Any]:
         return {
             "catalog": dict(self.catalog),
-            "location": self.location,
             "rejected_location": self.rejected_location,
             "format": self.format,
             "compression": self.compression,
@@ -284,7 +284,6 @@ class Config:
 
             target = TargetConfig(
                 catalog=raw_target.get("catalog", {}),
-                location=raw_target.get("location", ""),
                 rejected_location=raw_target.get("rejected_location", ""),
                 format=raw_target.get("format", "delta"),
                 compression=raw_target.get("compression", "snappy"),

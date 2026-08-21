@@ -29,7 +29,11 @@ locals {
   # KMS key alias
   kms_key_alias = "alias/glue-flight-radar"
 
-  # Spark configuration properties (passed via --conf)
+  # Spark configuration properties (applied at runtime by main.py via
+  # spark.conf.set()). NOT passed via --conf: Glue 5.0's PrepareLaunch only
+  # accepts a single key=value per --conf and rejects space-separated lists
+  # ("Invalid input to --conf"). Delta extensions/catalog are configured by
+  # Glue itself through the --datalake-formats job argument.
   spark_properties = {
     "spark.sql.adaptive.enabled"                      = "true"
     "spark.sql.adaptive.coalescePartitions.enabled"   = "true"
@@ -37,30 +41,12 @@ locals {
     "spark.sql.adaptive.advisoryPartitionSizeInBytes" = "128MB"
     "spark.sql.shuffle.partitions"                    = "200"
     "spark.sql.parquet.compression.codec"             = "snappy"
-    "spark.executor.memory"                           = "4g"
-    "spark.driver.memory"                             = "4g"
-    "spark.executor.memoryOverhead"                   = "2g"
-    "spark.driver.memoryOverhead"                     = "2g"
-    "spark.memory.offHeap.enabled"                    = "true"
-    "spark.memory.offHeap.size"                       = "2g"
-    "spark.dynamicAllocation.enabled"                 = "true"
-    "spark.dynamicAllocation.shuffleTracking.enabled" = "true"
     "spark.sql.streaming.schemaInference"             = "true"
     "spark.sql.parquet.mergeSchema"                   = "false"
-    "spark.glue.disable.optimization"                 = "false"
-    # Delta Lake / Lakehouse configs
+    # Delta Lake / Lakehouse configs (runtime-settable)
     "spark.databricks.delta.properties.defaults.autoOptimize.optimizeWrite" = "true"
     "spark.databricks.delta.properties.defaults.autoOptimize.autoCompact"   = "true"
-    # Delta Lake Spark extension + catalog (obrigatório para DeltaTable e formato delta)
-    "spark.sql.extensions"            = "io.delta.sql.DeltaSparkSessionExtension"
-    "spark.sql.catalog.spark_catalog" = "org.apache.spark.sql.delta.catalog.DeltaCatalog"
-    "spark.delta.logStore.class"      = "org.apache.spark.sql.delta.storage.S3SingleDriverLogStore"
   }
-
-  # Build the --conf string: key=value key=value ...
-  spark_conf = join(" ", [
-    for k, v in local.spark_properties : "${k}=${v}"
-  ])
 
   # Common tags merged with environment
   common_tags = merge(var.tags, {

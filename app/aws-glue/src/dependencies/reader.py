@@ -71,7 +71,7 @@ class Reader:
                 .format(source.format)
                 .load(source.source_location)
             )
-            logger.info("Batch read %d rows from %s", df.count(), source.source_location)
+            logger.info("Batch DataFrame created from %s", source.source_location)
             return df
         except Exception as exc:
             raise ReaderError(

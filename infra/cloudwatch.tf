@@ -28,3 +28,25 @@ resource "aws_cloudwatch_event_target" "start_glue_batch" {
   target_id = "StartGlueBatchJob"
   arn       = aws_lambda_function.glue_starter.arn
 }
+
+# ── CloudWatch Log Groups — Glue Jobs ────────────────────────────────────────
+# Pre-create the continuous-logging log groups so jobs do not fail with
+# "The specified log group does not exist" before the first run creates them.
+
+resource "aws_cloudwatch_log_group" "glue_batch" {
+  name              = "/aws-glue/jobs/${local.glue_full_load_job_name}"
+  retention_in_days = 14
+
+  tags = merge(local.common_tags, {
+    Name = "${local.glue_full_load_job_name}-logs"
+  })
+}
+
+resource "aws_cloudwatch_log_group" "glue_streaming" {
+  name              = "/aws-glue/jobs/${local.glue_streaming_job_name}"
+  retention_in_days = 14
+
+  tags = merge(local.common_tags, {
+    Name = "${local.glue_streaming_job_name}-logs"
+  })
+}

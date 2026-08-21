@@ -60,7 +60,7 @@ df = spark.readStream.format("parquet") \
     .load("s3://bucket/landing/flights_cdc/")
 
 def write_batch(df, epoch_id):
-    # Delta MERGE by PK resolved by path (forPath) — cross-batch dedup
+    # Delta MERGE by PK resolved via the Glue Data Catalog (forName) — cross-batch dedup
     writer.write(df, target, source)
 
 df.writeStream \

@@ -25,7 +25,6 @@ from src.dependencies.data_quality import DataQuality
 def flights_target():
     return TargetConfig(
         catalog={"database": "db_raw", "table": "tbl_flights"},
-        location="s3://raw/tables/tbl_flights/",
         rejected_location="s3://landing/dms/flightradar/flight_radar/Rejected/",
         format="parquet",
         compression="snappy",
@@ -175,7 +174,6 @@ class TestDataQuality:
         """Config without PK should pass through without duplicate removal."""
         target = TargetConfig(
             catalog={"database": "db_raw", "table": "tbl_test"},
-            location="s3://raw/tables/tbl_test/",
             rejected_location="s3://raw/tables/tbl_test/Rejected/",
             format="parquet",
             compression="snappy",

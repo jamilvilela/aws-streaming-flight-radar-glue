@@ -52,7 +52,6 @@ def flights_source(account_id, raw_bucket):
     """SourceConfig with an embedded Delta TargetConfig (db_raw.tbl_flights)."""
     target = TargetConfig(
         catalog={"database": "db_raw", "table": "tbl_flights"},
-        location=f"s3://{raw_bucket}/tables/tbl_flights/",
         rejected_location=f"s3://{raw_bucket}/tables/tbl_flights/Rejected/",
         format="delta",
         compression="snappy",
@@ -118,7 +117,7 @@ class TestPipelineE2E:
         processor = Processor(spark)
         processor.run(flights_source, flights_source.target, mode="batch", dataframe=input_df)
 
-        raw_df = spark.read.format("delta").load(flights_source.target.location)
+        raw_df = spark.read.format("delta").table("db_raw.tbl_flights")
         assert raw_df.count() >= 10, f"Expected >= 10 rows, got {raw_df.count()}"
 
         assert "event_date" in raw_df.columns
@@ -143,7 +142,7 @@ class TestPipelineE2E:
         processor = Processor(spark)
         processor.run(flights_source, flights_source.target, mode="batch", dataframe=input_df)
 
-        raw_df = spark.read.format("delta").load(flights_source.target.location)
+        raw_df = spark.read.format("delta").table("db_raw.tbl_flights")
         statuses = [r.status for r in raw_df.select("status").distinct().collect()]
         assert "invalid_status" not in statuses, (
             "Invalid status leaked into the Delta table — rejection failed"

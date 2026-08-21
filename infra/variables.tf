@@ -68,10 +68,10 @@ variable "full_load_job_name" {
   default     = ""
 }
 
-variable "glue_iam_role_name" {
-  description = "Name of the existing IAM role for Glue"
+variable "glue_job_role_name" {
+  description = "Name of the dedicated IAM role created for the Glue jobs and interactive sessions"
   type        = string
-  default     = "role-datalake-analytics"
+  default     = "role-glue-job-flight-radar"
 }
 
 variable "glue_worker_type" {

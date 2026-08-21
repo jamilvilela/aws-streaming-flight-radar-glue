@@ -118,7 +118,6 @@ class TestTargetConfig:
     def test_to_dict_roundtrip(self):
         cfg = TargetConfig(
             catalog={"database": "db_raw", "table": "tbl_test"},
-            location="s3://raw/tables/test/",
             rejected_location="s3://raw/tables/test/Rejected/",
             format="parquet",
             compression="snappy",
@@ -151,7 +150,6 @@ class TestConfig:
         "checkpoint_location": "s3://workspace/checkpoints/flights/",
         "target": {
             "catalog": {"database": "db_raw", "table": "tbl_flights"},
-            "location": "s3://raw/tables/tbl_flights/",
             "rejected_location": "s3://landing/dms/flightradar/flight_radar/Rejected/",
             "format": "parquet",
             "compression": "snappy",

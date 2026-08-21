@@ -32,9 +32,11 @@ resource "aws_glue_connection" "vpc" {
   connection_type = "NETWORK"
 
   physical_connection_requirements {
-    availability_zone = data.aws_subnet.all[keys(data.aws_subnet.all)[0]].availability_zone
-    # Prefer private subnets; fall back to any subnet if none are private
-    subnet_id              = length(data.aws_subnets.private.ids) > 0 ? data.aws_subnets.private.ids[0] : data.aws_subnets.all.ids[0]
+    # AZ sempre derivada da própria subnet escolhida — evita o erro
+    # "Availability Zone <az> does not correspond to subnet" quando a AZ e o
+    # subnet_id são resolvidos de fontes/ordenações diferentes.
+    availability_zone     = data.aws_subnet.glue.availability_zone
+    subnet_id             = data.aws_subnet.glue.id
     security_group_id_list = [data.aws_security_group.default.id]
   }
 
@@ -47,7 +49,7 @@ resource "aws_glue_connection" "vpc" {
 
 resource "aws_glue_job" "full_load_batch" {
   name              = local.glue_full_load_job_name
-  role_arn          = data.aws_iam_role.datalake_analytics.arn
+  role_arn          = aws_iam_role.glue_job.arn
   glue_version      = "5.0"
   worker_type       = var.full_load_worker_type
   number_of_workers = var.full_load_number_of_workers
@@ -77,9 +79,6 @@ resource "aws_glue_job" "full_load_batch" {
     # Delta Lake support (writer.py importa delta.tables)
     "--datalake-formats" = "delta"
 
-    # Spark configs passed via --conf (parsed dynamically by main.py)
-    "--conf" = local.spark_conf
-
     # Spark UI
     "--enable-spark-ui"       = "true"
     "--spark-event-logs-path" = "s3://${local.buckets.workspace}/spark-logs/${local.glue_full_load_job_name}/"
@@ -100,7 +99,7 @@ resource "aws_glue_job" "full_load_batch" {
 
 resource "aws_glue_job" "streaming_minibatch" {
   name              = local.glue_streaming_job_name
-  role_arn          = data.aws_iam_role.datalake_analytics.arn
+  role_arn          = aws_iam_role.glue_job.arn
   glue_version      = "5.0"
   worker_type       = var.streaming_worker_type
   number_of_workers = var.streaming_number_of_workers
@@ -129,9 +128,6 @@ resource "aws_glue_job" "streaming_minibatch" {
 
     # Delta Lake support (writer.py importa delta.tables)
     "--datalake-formats" = "delta"
-
-    # Spark configs passed via --conf (parsed dynamically by main.py)
-    "--conf" = local.spark_conf
 
     # Spark UI
     "--enable-spark-ui"       = "true"

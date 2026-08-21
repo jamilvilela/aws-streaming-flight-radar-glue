@@ -1,6 +1,7 @@
 """
 EtlControl module — Registers pipeline execution records in the
-etl_control table (Parquet in the raw layer).
+etl_control table (Parquet in the raw layer, resolved via the Glue
+Data Catalog).
 """
 
 from __future__ import annotations
@@ -27,6 +28,7 @@ class EtlControl:
 
     Each call to ``register()`` appends one row with execution_id,
     job_name, source, timestamps, row counts, status, and partition info.
+    The table is resolved through the Glue Data Catalog (``db_raw.etl_control``).
     """
 
     def __init__(self, spark: SparkSession):
@@ -90,24 +92,15 @@ class EtlControl:
                 ],
             )
 
-            path = self._resolve_path()
             (
                 df.write
                 .mode("append")
-                .format("parquet")
-                .partitionBy("reference_date")
-                .option("compression", "snappy")
-                .save(path)
+                .saveAsTable("db_raw.etl_control")
             )
             logger.info("Execution registered in etl_control: %s", execution_id)
         except Exception as exc:
             logger.warning("Failed to register execution in etl_control: %s", exc)
 
-
-    def _resolve_path(self) -> str:
-        """Resolve the S3 path for the etl_control table."""
-        account_id = self._get_account_id()
-        return f"s3://lakehouse-raw-{account_id}/tables/etl_control/"
 
     @staticmethod
     def _build_partition_value(target: TargetConfig) -> str:
@@ -115,12 +108,3 @@ class EtlControl:
         if not target.partition_keys:
             return ""
         return "/".join(f"{pk.name}=" for pk in target.partition_keys)
-
-    @staticmethod
-    def _get_account_id() -> str:
-        """Try to get the AWS account ID from boto3 or environment."""
-        try:
-            import boto3
-            return boto3.client("sts").get_caller_identity()["Account"]
-        except Exception:
-            return "000000000000"

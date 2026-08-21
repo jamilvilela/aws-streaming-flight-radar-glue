@@ -41,7 +41,7 @@ glue_job_name = "glue-flight-radar"
 # Defaults to "<glue_job_name>-batch" when left empty.
 # full_load_job_name = "glue-flight-radar-batch"
 
-glue_iam_role_name = "role-datalake-analytics"
+glue_job_role_name = "role-glue-job-flight-radar"
 
 glue_worker_type = "G.1X"
 

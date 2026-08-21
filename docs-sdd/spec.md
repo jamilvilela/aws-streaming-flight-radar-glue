@@ -82,7 +82,7 @@ flowchart TD
 - `PartitionKey(name, type)`
 - `CdcConfig(op_column, timestamp_column, delete_strategy)`
 - `SourceConfig(source, order, source_location, cdc_source_location, format, cdc_config, checkpoint_location, target)`
-- `TargetConfig(catalog, location, rejected_location, format, compression, partition_keys, schema, primary_key, enum_columns, cod_unico_expr)`
+- `TargetConfig(catalog, rejected_location, format, compression, partition_keys, schema, primary_key, enum_columns, cod_unico_expr)`
 - `Config` with `_sources: List[SourceConfig]`, `source` property (first), `sources` (all, sorted by order), `get_source(name)` method, and `from_files()`, `from_s3()`, `to_dict()` methods
 
 **Configuration files:**
@@ -112,10 +112,10 @@ flowchart TD
 - Returns `(valid_df, rejects_df)`
 
 ### 3.5. Writer — `app/aws-glue/src/dependencies/writer.py`
-- **Delta Lake** write resolved by path with `DeltaTable.forPath()` (independent of catalog metadata)
+- **Delta Lake** write resolved via the Glue Data Catalog with `DeltaTable.forName()`
 - Generates `cod_unico` via `F.concat_ws("_", *pk_cols)` for merge key
 - Derives `event_date` via `F.to_date(F.col(timestamp_col))`
-- Bootstraps the physical Delta table (`_delta_log`) at `target.location` on first write, then MERGE on subsequent writes
+- Bootstraps the physical Delta table (`_delta_log`) via `saveAsTable` on first write, then MERGE on subsequent writes
 - Maps DMS CDC short names (`Op` / `dms_timestamp`) to catalog column names (`cdc_operation` / `cdc_timestamp`) via `_map_cdc_columns`
 - MERGE: `WHEN NOT MATCHED AND Op <> 'D' THEN INSERT` / `WHEN MATCHED AND Op = 'D' THEN DELETE` / `WHEN MATCHED THEN UPDATE`
 - **No manual compaction** — Delta manages via auto-optimize
@@ -124,12 +124,12 @@ flowchart TD
 ### 3.6. EtlControl — `app/aws-glue/src/dependencies/etl_control.py`
 - Separate class for registering in `etl_control`
 - Method `register(execution_id, source_name, status, records_read, records_written, records_rejected, target, elapsed_seconds, error_message)`
-- Resolves account_id via boto3 STS
+- Writes to the `db_raw.etl_control` catalog table via `saveAsTable`
 
 ### 3.7. QualityMetrics — `app/aws-glue/src/dependencies/quality_metrics.py`
 - Separate class for metrics in `data_quality_metrics`
 - Method `save(target, status, records_read, records_written, records_rejected)`
-- Resolves account_id via boto3 STS
+- Writes to the `db_raw.data_quality_metrics` catalog table via `saveAsTable`
 
 ### 3.8. Processor — `app/aws-glue/src/dependencies/processor.py`
 - Pipeline orchestrator
@@ -233,7 +233,7 @@ code/classes via the `--mode` argument:
   - `spark.delta.logStore.class` = `org.apache.spark.sql.delta.storage.S3SingleDriverLogStore`
 
 ### Existing Data Sources
-- IAM Role: `role-datalake-analytics`
+- IAM Role: `role-glue-job-flight-radar` (dedicated, created by this module)
 - VPC: default (`vpc-022139f6bee3cbdd5`)
 - Subnets: private in us-east-1a/b/c
 - Security Group: default (`sg-0f885f9d1473a7777`)
@@ -280,7 +280,7 @@ code/classes via the `--mode` argument:
 
 - **Buckets**: named with account ID: `lakehouse-{tier}-{account_id}`
 - **Format**: Delta Lake (target) + Snappy; Parquet for rejects
-- **IAM**: role `role-datalake-analytics`
+- **IAM**: role `role-glue-job-flight-radar` (dedicated, created by this module)
 - **Spark**: pure Spark, no Glue APIs
 - **Configs**: unified config.json (8 tables with embedded source + target)
 - **Streaming + Batch**: same `main.py` script, differentiated by `--mode`

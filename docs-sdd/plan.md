@@ -86,7 +86,7 @@ lakehouse-workspace-{account_id}/
 │               └── dependencies/
 │                   ├── helpers.zip                  # Support modules (archive of src/)
 │                   └── config/
-│                       └── config.json              # Unified configuration (account_id resolved)
+│                       └── config.json              # Unified configuration (catalog-based references)
 └── aws-lambda/
     └── flight-radar/
         └── start_workflow/
@@ -127,7 +127,6 @@ pointing to the paths above.
 ```json
 {
   "catalog": { "database": "db_raw", "table": "tbl_flights" },
-  "location": "s3://lakehouse-raw-{account_id}/tables/tbl_flights/",
   "rejected_location": "s3://lakehouse-landing-{account_id}/tables/tbl_flights/Rejected/",
   "format": "delta",
   "compression": "snappy",
@@ -158,7 +157,7 @@ pointing to the paths above.
 | `PartitionKey` | name, type |
 | `CdcConfig` | op_column, timestamp_column, delete_strategy |
 | `SourceConfig` | source, order, source_location, cdc_source_location, format, cdc_config, checkpoint_location, target |
-| `TargetConfig` | catalog, location, rejected_location, format, compression, partition_keys, schema, primary_key, enum_columns, cod_unico_expr |
+| `TargetConfig` | catalog, rejected_location, format, compression, partition_keys, schema, primary_key, enum_columns, cod_unico_expr |
 | `Config` | `_sources: List[SourceConfig]`, `source` (property → first), `sources` (property → all sorted by order), `get_source(name)` (method), `from_files()`, `from_s3()`, `to_dict()` |
 
 ### `reader.py` — Reader Class (batch + streaming)
@@ -186,7 +185,7 @@ pointing to the paths above.
 > **Note:** Uniqueness is guaranteed by the Delta MERGE on write (Writer).
 
 ### `writer.py` — Writer Class
-- **Delta Lake** write with `DeltaTable.forPath()` resolved by location
+- **Delta Lake** write with `DeltaTable.forName()` resolved via the Glue Data Catalog
 - Generates `cod_unico` via `F.concat_ws("_", *pk_cols)` for merge key
 - Derives `event_date` via `F.to_date()`
 - Bootstraps the Delta table on first write; MERGE on subsequent writes
@@ -197,12 +196,12 @@ pointing to the paths above.
 
 ### `etl_control.py` — EtlControl Class
 - Method `register()` writes to `etl_control`
-- Resolves account_id via boto3 STS
+- Writes to the `db_raw.etl_control` catalog table via `saveAsTable`
 - Schema: execution_id, job_name, source, execution_start, execution_end, status, records_read, records_written, records_rejected, target_partition, error_message, reference_date
 
 ### `quality_metrics.py` — QualityMetrics Class
 - Method `save()` writes to `data_quality_metrics`
-- Resolves account_id via boto3 STS
+- Writes to the `db_raw.data_quality_metrics` catalog table via `saveAsTable`
 - Schema: database, table, processing_timestamp, metric, rule, status, failure_reason, partition, technology, reference_date
 
 ### `processor.py` — Processor Class

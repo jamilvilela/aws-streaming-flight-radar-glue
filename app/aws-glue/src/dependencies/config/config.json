@@ -12,28 +12,86 @@
     },
     "checkpoint_location": "s3://lakehouse-workspace-{account_id}/checkpoints/aircraft/",
     "target": {
-      "catalog": { "database": "db_raw", "table": "tbl_aircraft" },
-      "location": "s3://lakehouse-raw-{account_id}/tables/tbl_aircraft/",
-      "rejected_location": "s3://lakehouse-landing-{account_id}/tables/tbl_aircraft/Rejected/",
+      "catalog": {
+        "database": "db_raw",
+        "table": "tbl_aircraft"
+      },
       "format": "delta",
       "compression": "snappy",
-      "partition_keys": [{ "name": "event_date", "type": "date" }],
+      "partition_keys": [
+        {
+          "name": "event_date",
+          "type": "date"
+        }
+      ],
       "schema": {
-        "icao24":          { "type": "string", "nullable": false, "comment": "ICAO aircraft address (hex)" },
-        "registration":    { "type": "string", "nullable": false, "comment": "Aircraft registration/tail number" },
-        "aircraft_type":   { "type": "string", "nullable": false, "comment": "Aircraft type ICAO code (e.g. B738, A320)" },
-        "serial_number":   { "type": "string", "nullable": true, "comment": "Manufacturer serial number" },
-        "operator_icao":   { "type": "string", "nullable": true, "comment": "Operator ICAO code" },
-        "operator_name":   { "type": "string", "nullable": true, "comment": "Operator name" },
-        "year_built":      { "type": "int", "nullable": true, "comment": "Year of manufacture" },
-        "created_at":      { "type": "timestamp", "nullable": false, "comment": "Record creation timestamp" },
-        "updated_at":      { "type": "timestamp", "nullable": false, "comment": "Record last update timestamp" },
-        "cod_unique":      { "type": "string", "nullable": true, "comment": "PK concatenation (icao24)" },
-        "cdc_operation":              { "type": "string", "nullable": true, "comment": "CDC operation (I/U/D)" }
+        "icao24": {
+          "type": "string",
+          "nullable": false,
+          "comment": "ICAO aircraft address (hex)"
+        },
+        "registration": {
+          "type": "string",
+          "nullable": false,
+          "comment": "Aircraft registration/tail number"
+        },
+        "aircraft_type": {
+          "type": "string",
+          "nullable": false,
+          "comment": "Aircraft type ICAO code (e.g. B738, A320)"
+        },
+        "serial_number": {
+          "type": "string",
+          "nullable": true,
+          "comment": "Manufacturer serial number"
+        },
+        "operator_icao": {
+          "type": "string",
+          "nullable": true,
+          "comment": "Operator ICAO code"
+        },
+        "operator_name": {
+          "type": "string",
+          "nullable": true,
+          "comment": "Operator name"
+        },
+        "year_built": {
+          "type": "int",
+          "nullable": true,
+          "comment": "Year of manufacture"
+        },
+        "created_at": {
+          "type": "timestamp",
+          "nullable": false,
+          "comment": "Record creation timestamp"
+        },
+        "updated_at": {
+          "type": "timestamp",
+          "nullable": false,
+          "comment": "Record last update timestamp"
+        },
+        "cod_unique": {
+          "type": "string",
+          "nullable": true,
+          "comment": "PK concatenation (icao24)"
+        },
+        "cdc_operation": {
+          "type": "string",
+          "nullable": true,
+          "comment": "CDC operation (I/U/D)"
+        }
       },
-      "primary_key": ["icao24"],
-      "cod_unique_expr": { "columns": ["icao24"], "separator": "_" },
-      "enum_columns": {}
+      "primary_key": [
+        "icao24"
+      ],
+      "cod_unique_expr": {
+        "columns": [
+          "icao24"
+        ],
+        "separator": "_"
+      },
+      "enum_columns": {},
+      "rejected_location": "s3://lakehouse-landing-{account_id}/tables/tbl_aircraft/Rejected/"
     }
   },
   {
@@ -49,37 +107,131 @@
     },
     "checkpoint_location": "s3://lakehouse-workspace-{account_id}/checkpoints/airports/",
     "target": {
-      "catalog": { "database": "db_raw", "table": "tbl_airports" },
-      "location": "s3://lakehouse-raw-{account_id}/tables/tbl_airports/",
-      "rejected_location": "s3://lakehouse-landing-{account_id}/tables/tbl_airports/Rejected/",
+      "catalog": {
+        "database": "db_raw",
+        "table": "tbl_airports"
+      },
       "format": "delta",
       "compression": "snappy",
-      "partition_keys": [{ "name": "event_date", "type": "date" }],
+      "partition_keys": [
+        {
+          "name": "event_date",
+          "type": "date"
+        }
+      ],
       "schema": {
-        "id":               { "type": "int", "nullable": false, "comment": "Airport internal ID (PK)" },
-        "ident":            { "type": "string", "nullable": true, "comment": "Airport identifier code" },
-        "type":             { "type": "string", "nullable": true, "comment": "Airport type (large_airport, medium_airport, small_airport, heliport...)" },
-        "name":             { "type": "string", "nullable": false, "comment": "Airport name" },
-        "latitude_deg":     { "type": "decimal", "nullable": true, "comment": "Latitude in degrees" },
-        "longitude_deg":    { "type": "decimal", "nullable": true, "comment": "Longitude in degrees" },
-        "elevation_ft":     { "type": "int", "nullable": true, "comment": "Elevation in feet" },
-        "continent":        { "type": "string", "nullable": true, "comment": "Continent code" },
-        "iso_country":      { "type": "string", "nullable": true, "comment": "ISO country code" },
-        "iso_region":       { "type": "string", "nullable": true, "comment": "ISO region code" },
-        "municipality":     { "type": "string", "nullable": true, "comment": "Municipality/city" },
-        "scheduled_service": { "type": "boolean", "nullable": false, "comment": "Has scheduled service?" },
-        "icao_code":        { "type": "string", "nullable": true, "comment": "ICAO airport code (natural key)" },
-        "iata_code":        { "type": "string", "nullable": true, "comment": "IATA airport code" },
-        "gps_code":         { "type": "string", "nullable": true, "comment": "GPS code" },
-        "local_code":       { "type": "string", "nullable": true, "comment": "Local airport code" },
-        "home_link":        { "type": "string", "nullable": true, "comment": "Airport homepage URL" },
-        "wikipedia_link":   { "type": "string", "nullable": true, "comment": "Wikipedia page URL" },
-        "cod_unique":        { "type": "string", "nullable": true, "comment": "PK concatenation (icao_code)" },
-        "cdc_operation":               { "type": "string", "nullable": true, "comment": "CDC operation (I/U/D)" }
+        "id": {
+          "type": "int",
+          "nullable": false,
+          "comment": "Airport internal ID (PK)"
+        },
+        "ident": {
+          "type": "string",
+          "nullable": true,
+          "comment": "Airport identifier code"
+        },
+        "type": {
+          "type": "string",
+          "nullable": true,
+          "comment": "Airport type (large_airport, medium_airport, small_airport, heliport...)"
+        },
+        "name": {
+          "type": "string",
+          "nullable": false,
+          "comment": "Airport name"
+        },
+        "latitude_deg": {
+          "type": "decimal",
+          "nullable": true,
+          "comment": "Latitude in degrees"
+        },
+        "longitude_deg": {
+          "type": "decimal",
+          "nullable": true,
+          "comment": "Longitude in degrees"
+        },
+        "elevation_ft": {
+          "type": "int",
+          "nullable": true,
+          "comment": "Elevation in feet"
+        },
+        "continent": {
+          "type": "string",
+          "nullable": true,
+          "comment": "Continent code"
+        },
+        "iso_country": {
+          "type": "string",
+          "nullable": true,
+          "comment": "ISO country code"
+        },
+        "iso_region": {
+          "type": "string",
+          "nullable": true,
+          "comment": "ISO region code"
+        },
+        "municipality": {
+          "type": "string",
+          "nullable": true,
+          "comment": "Municipality/city"
+        },
+        "scheduled_service": {
+          "type": "boolean",
+          "nullable": false,
+          "comment": "Has scheduled service?"
+        },
+        "icao_code": {
+          "type": "string",
+          "nullable": true,
+          "comment": "ICAO airport code (natural key)"
+        },
+        "iata_code": {
+          "type": "string",
+          "nullable": true,
+          "comment": "IATA airport code"
+        },
+        "gps_code": {
+          "type": "string",
+          "nullable": true,
+          "comment": "GPS code"
+        },
+        "local_code": {
+          "type": "string",
+          "nullable": true,
+          "comment": "Local airport code"
+        },
+        "home_link": {
+          "type": "string",
+          "nullable": true,
+          "comment": "Airport homepage URL"
+        },
+        "wikipedia_link": {
+          "type": "string",
+          "nullable": true,
+          "comment": "Wikipedia page URL"
+        },
+        "cod_unique": {
+          "type": "string",
+          "nullable": true,
+          "comment": "PK concatenation (icao_code)"
+        },
+        "cdc_operation": {
+          "type": "string",
+          "nullable": true,
+          "comment": "CDC operation (I/U/D)"
+        }
       },
-      "primary_key": ["icao_code"],
-      "cod_unique_expr": { "columns": ["icao_code"], "separator": "_" },
-      "enum_columns": {}
+      "primary_key": [
+        "icao_code"
+      ],
+      "cod_unique_expr": {
+        "columns": [
+          "icao_code"
+        ],
+        "separator": "_"
+      },
+      "enum_columns": {},
+      "rejected_location": "s3://lakehouse-landing-{account_id}/tables/tbl_airports/Rejected/"
     }
   },
   {
@@ -95,28 +247,86 @@
     },
     "checkpoint_location": "s3://lakehouse-workspace-{account_id}/checkpoints/airlines/",
     "target": {
-      "catalog": { "database": "db_raw", "table": "tbl_airlines" },
-      "location": "s3://lakehouse-raw-{account_id}/tables/tbl_airlines/",
-      "rejected_location": "s3://lakehouse-landing-{account_id}/tables/tbl_airlines/Rejected/",
+      "catalog": {
+        "database": "db_raw",
+        "table": "tbl_airlines"
+      },
       "format": "delta",
       "compression": "snappy",
-      "partition_keys": [{ "name": "event_date", "type": "date" }],
+      "partition_keys": [
+        {
+          "name": "event_date",
+          "type": "date"
+        }
+      ],
       "schema": {
-        "id":          { "type": "int", "nullable": false, "comment": "Airline internal ID (PK)" },
-        "name":        { "type": "string", "nullable": false, "comment": "Airline name" },
-        "alias":       { "type": "string", "nullable": true, "comment": "Airline alias/alternative name" },
-        "iata_code":   { "type": "string", "nullable": true, "comment": "IATA airline code (2-letter)" },
-        "icao_code":   { "type": "string", "nullable": true, "comment": "ICAO airline code (3-letter, natural key)" },
-        "callsign":    { "type": "string", "nullable": true, "comment": "Airline callsign" },
-        "country":     { "type": "string", "nullable": true, "comment": "Country of incorporation" },
-        "is_active":   { "type": "boolean", "nullable": false, "comment": "Is the airline active?" },
-        "created_at":  { "type": "timestamp", "nullable": false, "comment": "Record creation timestamp" },
-        "cod_unique":   { "type": "string", "nullable": true, "comment": "PK concatenation (icao_code)" },
-        "cdc_operation":          { "type": "string", "nullable": true, "comment": "CDC operation (I/U/D)" }
+        "id": {
+          "type": "int",
+          "nullable": false,
+          "comment": "Airline internal ID (PK)"
+        },
+        "name": {
+          "type": "string",
+          "nullable": false,
+          "comment": "Airline name"
+        },
+        "alias": {
+          "type": "string",
+          "nullable": true,
+          "comment": "Airline alias/alternative name"
+        },
+        "iata_code": {
+          "type": "string",
+          "nullable": true,
+          "comment": "IATA airline code (2-letter)"
+        },
+        "icao_code": {
+          "type": "string",
+          "nullable": true,
+          "comment": "ICAO airline code (3-letter, natural key)"
+        },
+        "callsign": {
+          "type": "string",
+          "nullable": true,
+          "comment": "Airline callsign"
+        },
+        "country": {
+          "type": "string",
+          "nullable": true,
+          "comment": "Country of incorporation"
+        },
+        "is_active": {
+          "type": "boolean",
+          "nullable": false,
+          "comment": "Is the airline active?"
+        },
+        "created_at": {
+          "type": "timestamp",
+          "nullable": false,
+          "comment": "Record creation timestamp"
+        },
+        "cod_unique": {
+          "type": "string",
+          "nullable": true,
+          "comment": "PK concatenation (icao_code)"
+        },
+        "cdc_operation": {
+          "type": "string",
+          "nullable": true,
+          "comment": "CDC operation (I/U/D)"
+        }
       },
-      "primary_key": ["icao_code"],
-      "cod_unique_expr": { "columns": ["icao_code"], "separator": "_" },
-      "enum_columns": {}
+      "primary_key": [
+        "icao_code"
+      ],
+      "cod_unique_expr": {
+        "columns": [
+          "icao_code"
+        ],
+        "separator": "_"
+      },
+      "enum_columns": {},
+      "rejected_location": "s3://lakehouse-landing-{account_id}/tables/tbl_airlines/Rejected/"
     }
   },
   {
@@ -132,34 +342,115 @@
     },
     "checkpoint_location": "s3://lakehouse-workspace-{account_id}/checkpoints/flights/",
     "target": {
-      "catalog": { "database": "db_raw", "table": "tbl_flights" },
-      "location": "s3://lakehouse-raw-{account_id}/tables/tbl_flights/",
-      "rejected_location": "s3://lakehouse-landing-{account_id}/tables/tbl_flights/Rejected/",
+      "catalog": {
+        "database": "db_raw",
+        "table": "tbl_flights"
+      },
       "format": "delta",
       "compression": "snappy",
-      "partition_keys": [{ "name": "event_date", "type": "date", "source_column": "scheduled_departure" }],
+      "partition_keys": [
+        {
+          "name": "event_date",
+          "type": "date",
+          "source_column": "scheduled_departure"
+        }
+      ],
       "schema": {
-        "flight_id":           { "type": "bigint", "nullable": false, "comment": "Flight ID (PK)" },
-        "flight_number":       { "type": "string", "nullable": false, "comment": "Flight number (e.g. AA1234)" },
-        "airline_icao":        { "type": "string", "nullable": true, "comment": "Airline ICAO code (FK → airlines)" },
-        "aircraft_icao24":     { "type": "string", "nullable": true, "comment": "Aircraft ICAO24 address (FK → aircraft)" },
-        "origin_airport":      { "type": "string", "nullable": true, "comment": "Origin airport ICAO code" },
-        "destination_airport": { "type": "string", "nullable": true, "comment": "Destination airport ICAO code" },
-        "scheduled_departure": { "type": "timestamp", "nullable": true, "comment": "Scheduled departure time" },
-        "scheduled_arrival":   { "type": "timestamp", "nullable": true, "comment": "Scheduled arrival time" },
-        "actual_departure":    { "type": "timestamp", "nullable": true, "comment": "Actual departure time" },
-        "actual_arrival":      { "type": "timestamp", "nullable": true, "comment": "Actual arrival time" },
-        "status":              { "type": "string", "nullable": false, "comment": "Flight status (scheduled, active, landed, cancelled, diverted)" },
-        "created_at":          { "type": "timestamp", "nullable": false, "comment": "Record creation timestamp" },
-        "updated_at":          { "type": "timestamp", "nullable": false, "comment": "Record last update timestamp" },
-        "cod_unique":           { "type": "string", "nullable": true, "comment": "PK concatenation (flight_id)" },
-        "cdc_operation":                  { "type": "string", "nullable": true, "comment": "CDC operation (I/U/D)" }
+        "flight_id": {
+          "type": "bigint",
+          "nullable": false,
+          "comment": "Flight ID (PK)"
+        },
+        "flight_number": {
+          "type": "string",
+          "nullable": false,
+          "comment": "Flight number (e.g. AA1234)"
+        },
+        "airline_icao": {
+          "type": "string",
+          "nullable": true,
+          "comment": "Airline ICAO code (FK → airlines)"
+        },
+        "aircraft_icao24": {
+          "type": "string",
+          "nullable": true,
+          "comment": "Aircraft ICAO24 address (FK → aircraft)"
+        },
+        "origin_airport": {
+          "type": "string",
+          "nullable": true,
+          "comment": "Origin airport ICAO code"
+        },
+        "destination_airport": {
+          "type": "string",
+          "nullable": true,
+          "comment": "Destination airport ICAO code"
+        },
+        "scheduled_departure": {
+          "type": "timestamp",
+          "nullable": true,
+          "comment": "Scheduled departure time"
+        },
+        "scheduled_arrival": {
+          "type": "timestamp",
+          "nullable": true,
+          "comment": "Scheduled arrival time"
+        },
+        "actual_departure": {
+          "type": "timestamp",
+          "nullable": true,
+          "comment": "Actual departure time"
+        },
+        "actual_arrival": {
+          "type": "timestamp",
+          "nullable": true,
+          "comment": "Actual arrival time"
+        },
+        "status": {
+          "type": "string",
+          "nullable": false,
+          "comment": "Flight status (scheduled, active, landed, cancelled, diverted)"
+        },
+        "created_at": {
+          "type": "timestamp",
+          "nullable": false,
+          "comment": "Record creation timestamp"
+        },
+        "updated_at": {
+          "type": "timestamp",
+          "nullable": false,
+          "comment": "Record last update timestamp"
+        },
+        "cod_unique": {
+          "type": "string",
+          "nullable": true,
+          "comment": "PK concatenation (flight_id)"
+        },
+        "cdc_operation": {
+          "type": "string",
+          "nullable": true,
+          "comment": "CDC operation (I/U/D)"
+        }
       },
-      "primary_key": ["flight_id"],
-      "cod_unique_expr": { "columns": ["flight_id"], "separator": "_" },
+      "primary_key": [
+        "flight_id"
+      ],
+      "cod_unique_expr": {
+        "columns": [
+          "flight_id"
+        ],
+        "separator": "_"
+      },
       "enum_columns": {
-        "status": ["scheduled", "active", "landed", "cancelled", "diverted"]
-      }
+        "status": [
+          "scheduled",
+          "active",
+          "landed",
+          "cancelled",
+          "diverted"
+        ]
+      },
+      "rejected_location": "s3://lakehouse-landing-{account_id}/tables/tbl_flights/Rejected/"
     }
   },
   {
@@ -175,32 +466,108 @@
     },
     "checkpoint_location": "s3://lakehouse-workspace-{account_id}/checkpoints/aircraft_positions/",
     "target": {
-      "catalog": { "database": "db_raw", "table": "tbl_aircraft_positions" },
-      "location": "s3://lakehouse-raw-{account_id}/tables/tbl_aircraft_positions/",
-      "rejected_location": "s3://lakehouse-landing-{account_id}/tables/tbl_aircraft_positions/Rejected/",
+      "catalog": {
+        "database": "db_raw",
+        "table": "tbl_aircraft_positions"
+      },
       "format": "delta",
       "compression": "snappy",
-      "partition_keys": [{ "name": "aircraft_icao24", "type": "string" }],
+      "partition_keys": [
+        {
+          "name": "aircraft_icao24",
+          "type": "string"
+        }
+      ],
       "schema": {
-        "position_id":      { "type": "bigint", "nullable": false, "comment": "Position ID (PK)" },
-        "aircraft_icao24":  { "type": "string", "nullable": false, "comment": "Aircraft ICAO24 address (FK → aircraft)" },
-        "flight_id":        { "type": "bigint", "nullable": true, "comment": "Flight ID (FK → flights)" },
-        "latitude":         { "type": "decimal", "nullable": true, "comment": "Latitude" },
-        "longitude":        { "type": "decimal", "nullable": true, "comment": "Longitude" },
-        "altitude_ft":      { "type": "int", "nullable": true, "comment": "Altitude in feet" },
-        "velocity_kts":     { "type": "decimal", "nullable": true, "comment": "Velocity in knots" },
-        "heading":          { "type": "decimal", "nullable": true, "comment": "Heading in degrees" },
-        "vertical_rate_fpm": { "type": "decimal", "nullable": true, "comment": "Vertical rate in ft/min" },
-        "on_ground":        { "type": "boolean", "nullable": false, "comment": "Is the aircraft on ground?" },
-        "recorded_at":       { "type": "timestamp", "nullable": false, "comment": "Position recording timestamp" },
-        "ingested_at":       { "type": "timestamp", "nullable": false, "comment": "Ingestion timestamp" },
-        "cdc_operation":               { "type": "string", "nullable": true, "comment": "CDC operation (I/U/D)" },
-        "cdc_timestamp":     { "type": "timestamp", "nullable": true, "comment": "CDC capture timestamp" },
-        "cod_unique":         { "type": "string", "nullable": true, "comment": "PK concatenation (position_id_recorded_at)" }
+        "position_id": {
+          "type": "bigint",
+          "nullable": false,
+          "comment": "Position ID (PK)"
+        },
+        "aircraft_icao24": {
+          "type": "string",
+          "nullable": false,
+          "comment": "Aircraft ICAO24 address (FK → aircraft)"
+        },
+        "flight_id": {
+          "type": "bigint",
+          "nullable": true,
+          "comment": "Flight ID (FK → flights)"
+        },
+        "latitude": {
+          "type": "decimal",
+          "nullable": true,
+          "comment": "Latitude"
+        },
+        "longitude": {
+          "type": "decimal",
+          "nullable": true,
+          "comment": "Longitude"
+        },
+        "altitude_ft": {
+          "type": "int",
+          "nullable": true,
+          "comment": "Altitude in feet"
+        },
+        "velocity_kts": {
+          "type": "decimal",
+          "nullable": true,
+          "comment": "Velocity in knots"
+        },
+        "heading": {
+          "type": "decimal",
+          "nullable": true,
+          "comment": "Heading in degrees"
+        },
+        "vertical_rate_fpm": {
+          "type": "decimal",
+          "nullable": true,
+          "comment": "Vertical rate in ft/min"
+        },
+        "on_ground": {
+          "type": "boolean",
+          "nullable": false,
+          "comment": "Is the aircraft on ground?"
+        },
+        "recorded_at": {
+          "type": "timestamp",
+          "nullable": false,
+          "comment": "Position recording timestamp"
+        },
+        "ingested_at": {
+          "type": "timestamp",
+          "nullable": false,
+          "comment": "Ingestion timestamp"
+        },
+        "cdc_operation": {
+          "type": "string",
+          "nullable": true,
+          "comment": "CDC operation (I/U/D)"
+        },
+        "cdc_timestamp": {
+          "type": "timestamp",
+          "nullable": true,
+          "comment": "CDC capture timestamp"
+        },
+        "cod_unique": {
+          "type": "string",
+          "nullable": true,
+          "comment": "PK concatenation (position_id_recorded_at)"
+        }
       },
-      "primary_key": ["position_id", "recorded_at"],
-      "cod_unique_expr": { "columns": ["position_id", "recorded_at"], "separator": "_" },
-      "enum_columns": {}
+      "primary_key": [
+        "position_id",
+        "recorded_at"
+      ],
+      "cod_unique_expr": {
+        "columns": [
+          "position_id",
+          "recorded_at"
+        ],
+        "separator": "_"
+      },
+      "enum_columns": {},
+      "rejected_location": "s3://lakehouse-landing-{account_id}/tables/tbl_aircraft_positions/Rejected/"
     }
   },
   {
@@ -216,24 +583,66 @@
     },
     "checkpoint_location": "s3://lakehouse-workspace-{account_id}/checkpoints/countries/",
     "target": {
-      "catalog": { "database": "db_raw", "table": "tbl_countries" },
-      "location": "s3://lakehouse-raw-{account_id}/tables/tbl_countries/",
-      "rejected_location": "s3://lakehouse-landing-{account_id}/tables/tbl_countries/Rejected/",
+      "catalog": {
+        "database": "db_raw",
+        "table": "tbl_countries"
+      },
       "format": "delta",
       "compression": "snappy",
-      "partition_keys": [{ "name": "event_date", "type": "date" }],
+      "partition_keys": [
+        {
+          "name": "event_date",
+          "type": "date"
+        }
+      ],
       "schema": {
-        "id":              { "type": "int", "nullable": false, "comment": "Country internal ID (PK)" },
-        "code":            { "type": "string", "nullable": false, "comment": "ISO 2-letter country code" },
-        "name":            { "type": "string", "nullable": false, "comment": "Country name" },
-        "continent":       { "type": "string", "nullable": true, "comment": "Continent code" },
-        "wikipedia_link":  { "type": "string", "nullable": true, "comment": "Wikipedia page URL" },
-        "cod_unique":       { "type": "string", "nullable": true, "comment": "PK concatenation (id)" },
-        "cdc_operation":              { "type": "string", "nullable": true, "comment": "CDC operation (I/U/D)" }
+        "id": {
+          "type": "int",
+          "nullable": false,
+          "comment": "Country internal ID (PK)"
+        },
+        "code": {
+          "type": "string",
+          "nullable": false,
+          "comment": "ISO 2-letter country code"
+        },
+        "name": {
+          "type": "string",
+          "nullable": false,
+          "comment": "Country name"
+        },
+        "continent": {
+          "type": "string",
+          "nullable": true,
+          "comment": "Continent code"
+        },
+        "wikipedia_link": {
+          "type": "string",
+          "nullable": true,
+          "comment": "Wikipedia page URL"
+        },
+        "cod_unique": {
+          "type": "string",
+          "nullable": true,
+          "comment": "PK concatenation (id)"
+        },
+        "cdc_operation": {
+          "type": "string",
+          "nullable": true,
+          "comment": "CDC operation (I/U/D)"
+        }
       },
-      "primary_key": ["id"],
-      "cod_unique_expr": { "columns": ["id"], "separator": "_" },
-      "enum_columns": {}
+      "primary_key": [
+        "id"
+      ],
+      "cod_unique_expr": {
+        "columns": [
+          "id"
+        ],
+        "separator": "_"
+      },
+      "enum_columns": {},
+      "rejected_location": "s3://lakehouse-landing-{account_id}/tables/tbl_countries/Rejected/"
     }
   },
   {
@@ -249,23 +658,61 @@
     },
     "checkpoint_location": "s3://lakehouse-workspace-{account_id}/checkpoints/aircraft_types/",
     "target": {
-      "catalog": { "database": "db_raw", "table": "tbl_aircraft_types" },
-      "location": "s3://lakehouse-raw-{account_id}/tables/tbl_aircraft_types/",
-      "rejected_location": "s3://lakehouse-landing-{account_id}/tables/tbl_aircraft_types/Rejected/",
+      "catalog": {
+        "database": "db_raw",
+        "table": "tbl_aircraft_types"
+      },
       "format": "delta",
       "compression": "snappy",
-      "partition_keys": [{ "name": "event_date", "type": "date" }],
+      "partition_keys": [
+        {
+          "name": "event_date",
+          "type": "date"
+        }
+      ],
       "schema": {
-        "icao_code":       { "type": "string", "nullable": false, "comment": "ICAO aircraft type code (e.g. B738, A320)" },
-        "iata_code":       { "type": "string", "nullable": true, "comment": "IATA aircraft type code (e.g. 738, 320)" },
-        "name":            { "type": "string", "nullable": false, "comment": "Aircraft model name" },
-        "manufacturer":    { "type": "string", "nullable": true, "comment": "Manufacturer name" },
-        "cod_unique":       { "type": "string", "nullable": true, "comment": "PK concatenation (icao_code)" },
-        "cdc_operation":              { "type": "string", "nullable": true, "comment": "CDC operation (I/U/D)" }
+        "icao_code": {
+          "type": "string",
+          "nullable": false,
+          "comment": "ICAO aircraft type code (e.g. B738, A320)"
+        },
+        "iata_code": {
+          "type": "string",
+          "nullable": true,
+          "comment": "IATA aircraft type code (e.g. 738, 320)"
+        },
+        "name": {
+          "type": "string",
+          "nullable": false,
+          "comment": "Aircraft model name"
+        },
+        "manufacturer": {
+          "type": "string",
+          "nullable": true,
+          "comment": "Manufacturer name"
+        },
+        "cod_unique": {
+          "type": "string",
+          "nullable": true,
+          "comment": "PK concatenation (icao_code)"
+        },
+        "cdc_operation": {
+          "type": "string",
+          "nullable": true,
+          "comment": "CDC operation (I/U/D)"
+        }
       },
-      "primary_key": ["icao_code"],
-      "cod_unique_expr": { "columns": ["icao_code"], "separator": "_" },
-      "enum_columns": {}
+      "primary_key": [
+        "icao_code"
+      ],
+      "cod_unique_expr": {
+        "columns": [
+          "icao_code"
+        ],
+        "separator": "_"
+      },
+      "enum_columns": {},
+      "rejected_location": "s3://lakehouse-landing-{account_id}/tables/tbl_aircraft_types/Rejected/"
     }
   },
   {
@@ -281,31 +728,101 @@
     },
     "checkpoint_location": "s3://lakehouse-workspace-{account_id}/checkpoints/routes/",
     "target": {
-      "catalog": { "database": "db_raw", "table": "tbl_routes" },
-      "location": "s3://lakehouse-raw-{account_id}/tables/tbl_routes/",
-      "rejected_location": "s3://lakehouse-landing-{account_id}/tables/tbl_routes/Rejected/",
+      "catalog": {
+        "database": "db_raw",
+        "table": "tbl_routes"
+      },
       "format": "delta",
       "compression": "snappy",
-      "partition_keys": [{ "name": "event_date", "type": "date" }],
+      "partition_keys": [
+        {
+          "name": "event_date",
+          "type": "date"
+        }
+      ],
       "schema": {
-        "id":               { "type": "bigint", "nullable": false, "comment": "Route ID (PK)" },
-        "airline_iata":     { "type": "string", "nullable": true, "comment": "Airline IATA code" },
-        "airline_id":       { "type": "int", "nullable": true, "comment": "Airline internal ID (FK)" },
-        "src_airport":      { "type": "string", "nullable": true, "comment": "Source airport IATA code" },
-        "src_airport_id":   { "type": "int", "nullable": true, "comment": "Source airport internal ID (FK)" },
-        "dst_airport":      { "type": "string", "nullable": true, "comment": "Destination airport IATA code" },
-        "dst_airport_id":   { "type": "int", "nullable": true, "comment": "Destination airport internal ID (FK)" },
-        "codeshare":        { "type": "string", "nullable": true, "comment": "Codeshare indicator" },
-        "stops":            { "type": "int", "nullable": false, "comment": "Number of stops" },
-        "equipment":        { "type": "string", "nullable": true, "comment": "ICAO aircraft type codes" },
-        "duration_minutes": { "type": "int", "nullable": true, "comment": "Route duration in minutes" },
-        "created_at":       { "type": "timestamp", "nullable": false, "comment": "Record creation timestamp" },
-        "cod_unique":        { "type": "string", "nullable": true, "comment": "PK concatenation (id)" },
-        "cdc_operation":               { "type": "string", "nullable": true, "comment": "CDC operation (I/U/D)" }
+        "id": {
+          "type": "bigint",
+          "nullable": false,
+          "comment": "Route ID (PK)"
+        },
+        "airline_iata": {
+          "type": "string",
+          "nullable": true,
+          "comment": "Airline IATA code"
+        },
+        "airline_id": {
+          "type": "int",
+          "nullable": true,
+          "comment": "Airline internal ID (FK)"
+        },
+        "src_airport": {
+          "type": "string",
+          "nullable": true,
+          "comment": "Source airport IATA code"
+        },
+        "src_airport_id": {
+          "type": "int",
+          "nullable": true,
+          "comment": "Source airport internal ID (FK)"
+        },
+        "dst_airport": {
+          "type": "string",
+          "nullable": true,
+          "comment": "Destination airport IATA code"
+        },
+        "dst_airport_id": {
+          "type": "int",
+          "nullable": true,
+          "comment": "Destination airport internal ID (FK)"
+        },
+        "codeshare": {
+          "type": "string",
+          "nullable": true,
+          "comment": "Codeshare indicator"
+        },
+        "stops": {
+          "type": "int",
+          "nullable": false,
+          "comment": "Number of stops"
+        },
+        "equipment": {
+          "type": "string",
+          "nullable": true,
+          "comment": "ICAO aircraft type codes"
+        },
+        "duration_minutes": {
+          "type": "int",
+          "nullable": true,
+          "comment": "Route duration in minutes"
+        },
+        "created_at": {
+          "type": "timestamp",
+          "nullable": false,
+          "comment": "Record creation timestamp"
+        },
+        "cod_unique": {
+          "type": "string",
+          "nullable": true,
+          "comment": "PK concatenation (id)"
+        },
+        "cdc_operation": {
+          "type": "string",
+          "nullable": true,
+          "comment": "CDC operation (I/U/D)"
+        }
       },
-      "primary_key": ["id"],
-      "cod_unique_expr": { "columns": ["id"], "separator": "_" },
-      "enum_columns": {}
+      "primary_key": [
+        "id"
+      ],
+      "cod_unique_expr": {
+        "columns": [
+          "id"
+        ],
+        "separator": "_"
+      },
+      "enum_columns": {},
+      "rejected_location": "s3://lakehouse-landing-{account_id}/tables/tbl_routes/Rejected/"
     }
   }
 ]

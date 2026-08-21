@@ -32,6 +32,11 @@ output "full_load_job_arn" {
   value       = aws_glue_job.full_load_batch.arn
 }
 
+output "glue_job_role_arn" {
+  description = "ARN of the dedicated Glue job role"
+  value       = aws_iam_role.glue_job.arn
+}
+
 output "glue_security_configuration_name" {
   description = "Glue security configuration name"
   value       = aws_glue_security_configuration.glue.name
@@ -52,9 +57,9 @@ output "kms_key_arn" {
   value       = aws_kms_key.glue.arn
 }
 
-output "spark_conf" {
-  description = "Spark configuration string passed via --conf"
-  value       = local.spark_conf
+output "spark_properties" {
+  description = "Spark configuration properties applied at runtime by main.py (spark.conf.set)"
+  value       = local.spark_properties
 }
 
 output "script_location" {

@@ -2,14 +2,40 @@
 # IAM — Roles and Policies
 #===============================================================================
 
+# ── Glue Job Role — Dedicated ────────────────────────────────────────────────
+# Dedicated role for the Glue jobs (batch + streaming) and interactive
+# sessions. Owned by this module — unlike role-datalake-analytics, which is
+# managed by the data-lake repository. Trusted by the Glue service.
+
+resource "aws_iam_role" "glue_job" {
+  name = var.glue_job_role_name
+
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect = "Allow"
+        Principal = {
+          Service = "glue.amazonaws.com"
+        }
+        Action = "sts:AssumeRole"
+      },
+    ]
+  })
+
+  tags = merge(local.common_tags, {
+    Name = var.glue_job_role_name
+  })
+}
+
 # ── Glue Job Role — Catalog & Connections ─────────────────────────────────────
-# The existing Glue role (role-datalake-analytics) runs the jobs, which use a
-# VPC NETWORK connection. Glue must be able to read connection metadata from
-# the Data Catalog (glue:GetConnection/GetConnections).
+# The dedicated Glue role runs the jobs, which use a VPC NETWORK connection.
+# Glue must be able to read connection metadata from the Data Catalog
+# (glue:GetConnection/GetConnections).
 
 resource "aws_iam_role_policy" "glue_catalog_connections" {
   name = "glue-catalog-connections"
-  role = data.aws_iam_role.datalake_analytics.name
+  role = aws_iam_role.glue_job.name
 
   policy = jsonencode({
     Version = "2012-10-17"
@@ -31,12 +57,13 @@ resource "aws_iam_role_policy" "glue_catalog_connections" {
 
 # ── Glue Job Role — Data Catalog tables ───────────────────────────────────────
 # Spark reads/writes Delta tables resolved through the Glue Catalog
-# (DeltaTable.forName + enableHiveSupport), so the role needs read access
-# to databases, tables, partitions and UDFs in the catalog.
+# (DeltaTable.forName + saveAsTable + enableHiveSupport), so the role needs
+# read AND write access to databases, tables, partitions and UDFs in the
+# catalog (create/update table metadata and partitions on every write).
 
 resource "aws_iam_role_policy" "glue_catalog_tables" {
   name = "glue-catalog-tables"
-  role = data.aws_iam_role.datalake_analytics.name
+  role = aws_iam_role.glue_job.name
 
   policy = jsonencode({
     Version = "2012-10-17"
@@ -52,6 +79,14 @@ resource "aws_iam_role_policy" "glue_catalog_tables" {
           "glue:GetPartitions",
           "glue:GetUserDefinedFunction",
           "glue:GetDataCatalogEncryptionSettings",
+          "glue:CreateDatabase",
+          "glue:CreateTable",
+          "glue:UpdateTable",
+          "glue:DeleteTable",
+          "glue:BatchCreatePartition",
+          "glue:BatchUpdatePartition",
+          "glue:UpdatePartition",
+          "glue:DeletePartition",
         ]
         Resource = [
           "arn:aws:glue:${var.region}:${local.account_id}:catalog",
@@ -71,7 +106,7 @@ resource "aws_iam_role_policy" "glue_catalog_tables" {
 
 resource "aws_iam_role_policy" "glue_data_access" {
   name = "glue-data-access"
-  role = data.aws_iam_role.datalake_analytics.name
+  role = aws_iam_role.glue_job.name
 
   policy = jsonencode({
     Version = "2012-10-17"
@@ -116,11 +151,79 @@ resource "aws_iam_role_policy" "glue_data_access" {
         Effect = "Allow"
         Action = [
           "logs:CreateLogGroup",
+          "logs:AssociateKmsKey",
+        ]
+        Resource = [
+          "arn:aws:logs:${var.region}:${local.account_id}:log-group:/aws-glue/jobs/*",
+        ]
+      },
+      {
+        Effect = "Allow"
+        Action = [
           "logs:CreateLogStream",
           "logs:PutLogEvents",
         ]
         Resource = [
           "arn:aws:logs:${var.region}:${local.account_id}:log-group:/aws-glue/jobs/*:*",
+        ]
+      },
+      {
+        # Glue runtime metrics reporter (GlueCloudWatchReporter) sends job
+        # metrics to CloudWatch every ~30s when --enable-metrics=true. Without
+        # this permission it logs a 403 ERROR on every report cycle.
+        Effect = "Allow"
+        Action = [
+          "cloudwatch:PutMetricData",
+        ]
+        Resource = [
+          "*",
+        ]
+      },
+    ]
+  })
+}
+
+# ── Glue Job Role — VPC Networking (ENI management) ──────────────────────────
+# The Glue jobs run inside a VPC (NETWORK connection). Glue must be able to
+# describe the VPC/subnets/security groups and create/delete elastic network
+# interfaces (ENIs) for the job's Spark executors.
+
+resource "aws_iam_role_policy" "glue_vpc_networking" {
+  name = "glue-vpc-networking"
+  role = aws_iam_role.glue_job.name
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect = "Allow"
+        Action = [
+          "ec2:DescribeVpcs",
+          "ec2:DescribeSubnets",
+          "ec2:DescribeSecurityGroups",
+          "ec2:DescribeAvailabilityZones",
+          "ec2:DescribeNetworkInterfaces",
+          "ec2:DescribeVpcEndpoints",
+          "ec2:DescribeRouteTables",
+          "ec2:DescribePrefixLists",
+          "ec2:CreateNetworkInterface",
+          "ec2:DeleteNetworkInterface",
+          "ec2:ModifyNetworkInterfaceAttribute",
+        ]
+        Resource = ["*"]
+      },
+      {
+        # Glue taggea as ENIs que cria ao iniciar os workers no VPC.
+        Effect = "Allow"
+        Action = [
+          "ec2:CreateTags",
+          "ec2:DeleteTags",
+        ]
+        Resource = [
+          "arn:aws:ec2:*:*:network-interface/*",
+          "arn:aws:ec2:*:*:vpc/*",
+          "arn:aws:ec2:*:*:security-group/*",
+          "arn:aws:ec2:*:*:subnet/*",
         ]
       },
     ]
@@ -134,7 +237,7 @@ resource "aws_iam_role_policy" "glue_data_access" {
 
 resource "aws_iam_role_policy" "glue_interactive_sessions" {
   name = "glue-interactive-sessions"
-  role = data.aws_iam_role.datalake_analytics.name
+  role = aws_iam_role.glue_job.name
 
   policy = jsonencode({
     Version = "2012-10-17"
@@ -165,7 +268,7 @@ resource "aws_iam_role_policy" "glue_interactive_sessions" {
           "iam:PassRole",
         ]
         Resource = [
-          data.aws_iam_role.datalake_analytics.arn,
+          aws_iam_role.glue_job.arn,
         ]
       },
       {
@@ -185,8 +288,8 @@ resource "aws_iam_role_policy" "glue_interactive_sessions" {
 
 # ── Interactive Sessions — Caller PassRole ───────────────────────────────────
 # The identity that starts a notebook (members of the datalake-admins group)
-# must be allowed to pass role-datalake-analytics to Glue when creating an
-# interactive session (glue:CreateSession requires iam:PassRole on the role).
+# must be allowed to pass the dedicated Glue role when creating an interactive
+# session (glue:CreateSession requires iam:PassRole on the role).
 
 resource "aws_iam_group_policy" "interactive_sessions_passrole" {
   name  = "glue-interactive-sessions-passrole"
@@ -201,7 +304,7 @@ resource "aws_iam_group_policy" "interactive_sessions_passrole" {
           "iam:PassRole",
         ]
         Resource = [
-          data.aws_iam_role.datalake_analytics.arn,
+          aws_iam_role.glue_job.arn,
         ]
       },
     ]

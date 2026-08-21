@@ -13,7 +13,7 @@ description: Specialized agents for implementing the Glue Job streaming mini-bat
 - Streaming reading with `spark.readStream` and `trigger(processingTime=...)`
 - S3 checkpointing with `cleanSource=archive` (no job bookmarks)
 - DataFrame API: schema validation, type casting
-- **Delta Lake**: `DeltaTable.forPath()` resolved by location (physical table), MERGE by PK, partitioning
+- **Delta Lake**: `DeltaTable.forName()` resolved via the Glue Data Catalog, MERGE by PK, partitioning
 - Bootstrap of the Delta table on first write; MERGE on subsequent writes
 - Partitioned write to Delta Lake with MERGE (cross-batch dedup)
 - Python dataclasses with type hints (SourceConfig, TargetConfig)
@@ -37,7 +37,7 @@ in app/aws-glue/src/dependencies/{file_name}.py with the following requirements:
 - Glue Security Configuration and KMS keys
 - Glue Connection type NETWORK (VPC)
 - S3 Buckets — artifact upload via `aws_s3_object` resources (declarative, no upload in scripts)
-- IAM roles and policies (role-datalake-analytics, lambda_glue_starter)
+- IAM roles and policies (role-glue-job-flight-radar, lambda_glue_starter)
 - `ci-cd/deploy.sh` and `ci-cd/rollback.sh` scripts (setup and rollback only)
 
 ## Agent: `data-quality-spec`

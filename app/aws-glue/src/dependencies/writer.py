@@ -48,22 +48,26 @@ class Writer:
 
     def write(self, df: DataFrame, target: TargetConfig, source: Optional[SourceConfig] = None) -> None:
         """
-        Write a validated DataFrame to the Delta table at ``target.location``.
+        Write a validated DataFrame to the Delta table resolved through the
+        Glue Data Catalog (``target.database.target.table``).
 
         Generates ``cod_unique`` from the primary key columns (via
         ``cod_unique_expr`` or by concatenating PK columns with "_"), then
-        performs a Delta MERGE resolved by path (``DeltaTable.forPath``):
+        performs a Delta MERGE resolved by catalog name
+        (``DeltaTable.forName``):
           - ``WHEN NOT MATCHED AND op <> 'D' THEN INSERT`` — new records
           - ``WHEN MATCHED AND op = 'D' THEN DELETE`` — CDC deletes
           - ``WHEN MATCHED THEN UPDATE SET *`` — existing records updated
 
         On the first write the physical Delta table (``_delta_log``) does not
-        exist yet, so it is bootstrapped at ``target.location``; subsequent
-        writes perform the Delta MERGE.
+        exist yet, so it is bootstrapped via ``insertInto``; subsequent writes
+        perform the Delta MERGE. ``insertInto`` preserves the schema already
+        registered in the Glue Data Catalog, whereas ``saveAsTable`` can
+        replace that metadata with an invalid placeholder schema.
 
         Args:
             df: Validated DataFrame to write.
-            target: TargetConfig with catalog (database, table), location,
+            target: TargetConfig with catalog (database, table),
                     partition_keys, primary_key, cod_unique_expr.
             source: Optional SourceConfig for CDC timestamp resolution.
         """
@@ -80,17 +84,15 @@ class Writer:
 
         try:
             # Bootstrap check — the Glue Catalog table is only metadata until
-            # the first physical write creates _delta_log at the location.
-            if not DeltaTable.isDeltaTable(self._spark, target.location):
-                self._bootstrap_table(df_to_write, target, partition_cols)
-                logger.info("Created Delta table %s at %s (bootstrap)", table_name, target.location)
+            # the first physical write creates _delta_log at its location.
+            if not self._is_delta_table(table_name):
+                self._bootstrap_table(df_to_write, target, partition_cols, table_name)
+                logger.info("Created Delta table %s (bootstrap)", table_name)
                 return
 
-            # Resolve by path — independent of the Glue Catalog table being
-            # recognized as a Delta table (isDeltaTable needs the
-            # spark.sql.sources.provider property; classification/table_type
-            # alone are not enough for DeltaTable.forName).
-            delta_table = DeltaTable.forPath(self._spark, target.location)
+            # Resolve by catalog name — the table is registered in the Glue
+            # Data Catalog and recognized as a Delta table (provider=delta).
+            delta_table = DeltaTable.forName(self._spark, table_name)
 
             # CDC metadata columns are renamed to the catalog names by
             # _map_cdc_columns. Project only the columns that exist in the
@@ -124,8 +126,23 @@ class Writer:
 
         except Exception as exc:
             raise WriterError(
-                f"Failed to merge into Delta table {table_name} at {target.location}: {exc}"
+                f"Failed to merge into Delta table {table_name}: {exc}"
             ) from exc
+
+    def _is_delta_table(self, table_name: str) -> bool:
+        """
+        Check whether the catalog table is already a physical Delta table.
+
+        The Glue Catalog table is registered upfront (EXTERNAL_TABLE), but
+        the Delta transaction log (``_delta_log``) only exists after the
+        first write. ``DeltaTable.forName`` fails until the table is
+        recognized as Delta, which is used as the bootstrap signal.
+        """
+        try:
+            DeltaTable.forName(self._spark, table_name)
+            return True
+        except Exception:  # noqa: BLE001
+            return False
 
     def write_rejects(self, df: DataFrame, target: TargetConfig) -> None:
         """
@@ -183,19 +200,19 @@ class Writer:
         df: DataFrame,
         target: TargetConfig,
         partition_cols: list,
+        table_name: str,
     ) -> None:
         """
-        Create the physical Delta table at the target location.
+        Create the physical Delta table registered in the Glue Data Catalog.
 
         The Glue Catalog table is registered upfront (EXTERNAL_TABLE), but the
         Delta transaction log (``_delta_log``) only exists after the first
-        write. On the first batch we write the full load directly to the
-        location, materializing the Delta table, then subsequent runs MERGE.
+        write. On the first batch we write the full load directly via
+        ``insertInto`` materializes the Delta table without replacing the
+        schema registered in the Glue Data Catalog. The catalog definition
+        must remain authoritative for Athena and future Glue job runs.
         """
-        writer = df.write.format("delta").mode("append")
-        if partition_cols:
-            writer = writer.partitionBy(*partition_cols)
-        writer.save(target.location)
+        df.write.mode("overwrite").insertInto(table_name)
 
     @staticmethod
     def _generate_cod_unique(df: DataFrame, target: TargetConfig) -> DataFrame:

@@ -50,7 +50,7 @@ Data replicated by DMS in the landing bucket needs to be processed before it's r
 ### FR05 — Data Lake Write (Delta Lake)
 - Format: **Delta Lake** for valid data (rejects in Parquet)
 - Partitioning by `event_date` (derived from timestamp column)
-- Write via **Delta MERGE** based on PK, resolved by path (`DeltaTable.forPath`)
+- Write via **Delta MERGE** based on PK, resolved via the Glue Data Catalog (`DeltaTable.forName`)
 - Generate `cod_unico` (PK concatenation) as merge key
 - Bootstrap the physical Delta table on first write; MERGE on subsequent writes
 - Map DMS CDC columns (`Op` / `dms_timestamp`) to catalog names (`cdc_operation` / `cdc_timestamp`)
@@ -60,7 +60,7 @@ Data replicated by DMS in the landing bucket needs to be processed before it's r
 ### FR06 — Traceability (EtlControl)
 - Separate `EtlControl` class to write metadata to `etl_control`
 - Schema: execution_id, source_name, status, records_read, records_written, records_rejected, elapsed_seconds, error_message
-- Resolves S3 paths and account_id dynamically via `boto3`
+- Writes to the `db_raw.etl_control` catalog table via `saveAsTable`
 
 ### FR07 — Orchestration with Separate Components
 - `Processor` as the central coordinating class:

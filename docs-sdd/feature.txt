@@ -5,7 +5,7 @@ must have a Config class responsible for reading the json configuration file wit
 must have a Reader class responsible for reading data received in s3 in batch and streaming modes, with checkpointing functionality (cleanSource=archive). This class must receive the configuration parameters of the sources and their characteristics, read the files and deliver a spark dataframe as output;
 must have a DataQuality class that receives the dataframe from reading and must apply cleansing rules and validations of expected data types, and convert the dataframe to the defined schema. The class must return a valid dataframe for the Processor flow. The class must have a way for invalid records to be sent to a Rejected folder in the Landing bucket. The DataQuality class must be able to read the source schema from the .json configuration file and perform validations dynamically for any source based on the data types;
 must have a Writer class responsible for receiving the dataframe with valid data and storing it in a raw layer table, and this table will be informed through parameters in the .json configuration file containing database, table name, partitions name (list);
-must write valid data to the raw layer in Delta Lake format, using Delta MERGE by primary key (cod_unico) for cross-batch dedup, resolving the physical table via path (DeltaTable.forPath) and bootstrapping the table on the first write;
+must write valid data to the raw layer in Delta Lake format, using Delta MERGE by primary key (cod_unico) for cross-batch dedup, resolving the physical table via the Glue Data Catalog (DeltaTable.forName) and bootstrapping the table on the first write;
 must cover the 8 entities of the flight_radar schema coming from DMS: aircraft, airports, airlines, flights, aircraft_positions, countries, aircraft_types, routes.
 
 complementary artifacts:
@@ -18,7 +18,7 @@ complementary artifacts:
 -the glue job must be pure spark: it must not use glue apis (GlueContext, DynamicFrame, Job, getResolvedOptions).
 
 data lake information:
-datalake_role_name = "role-datalake-analytics"
+datalake_role_name = "role-glue-job-flight-radar"
 
 buckets = {
   workspace = "lakehouse-workspace"
@@ -70,7 +70,6 @@ metadata of target tables in ./infra/*.tf folder
     "checkpoint_location": "s3://lakehouse-workspace-{account_id}/checkpoints/aircraft/",
     "target": {
         "catalog": { "database": "db_raw", "table": "tbl_aircraft" },
-        "location": "s3://lakehouse-raw-{account_id}/tables/tbl_aircraft/",
         "rejected_location": "s3://lakehouse-landing-{account_id}/tables/tbl_aircraft/Rejected/",
         "format": "delta",
         "compression": "snappy",
@@ -105,7 +104,6 @@ metadata of target tables in ./infra/*.tf folder
     "checkpoint_location": "s3://lakehouse-workspace-{account_id}/checkpoints/flights/",
     "target": {
         "catalog": { "database": "db_raw", "table": "tbl_flights" },
-        "location": "s3://lakehouse-raw-{account_id}/tables/tbl_flights/",
         "rejected_location": "s3://lakehouse-landing-{account_id}/tables/tbl_flights/Rejected/",
         "format": "delta",
         "compression": "snappy",

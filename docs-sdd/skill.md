@@ -89,7 +89,7 @@ The Terraform module in `infra/` manages all required AWS resources, organized b
 
 Spark configs are defined in `locals.tf` as a `spark_properties` map and converted to a `--conf` string (format `key=value key=value ...`). `main.py` parses this string via `_parse_conf()` and applies each property dynamically to `SparkSession.builder`, with no hardcoded values.
 
-Data sources: IAM role `role-datalake-analytics`, default VPC, subnets, security group.
+Data sources: default VPC, subnets, security group (the Glue role `role-glue-job-flight-radar` is created by this module in `infra/iam.tf`).
 
 ## Componentes
 
@@ -105,7 +105,7 @@ Data sources: IAM role `role-datalake-analytics`, default VPC, subnets, security
 - Defines dataclasses for `SchemaField`, `PartitionKey`, `CdcConfig`, `TargetConfig`, `SourceConfig`, `Config`
 - Reads a **single** `config.json` with all tables (embedded source + target)
 - `SourceConfig`: `source`, `order`, `source_location`, `cdc_source_location`, `format`, `cdc_config`, `checkpoint_location`, `target`
-- `TargetConfig`: `catalog` (database, table), `location`, `rejected_location`, `format`, `compression`, `partition_keys`, `schema`, `primary_key`, `enum_columns`, `cod_unico_expr`
+- `TargetConfig`: `catalog` (database, table), `rejected_location`, `format`, `compression`, `partition_keys`, `schema`, `primary_key`, `enum_columns`, `cod_unico_expr`
 - `Config`: `sources` (list sorted by `order`), methods `from_file()` (local) and `from_s3()` (S3)
 
 ### 3. `Reader` — Data Reading (batch + streaming)
@@ -131,7 +131,7 @@ Data sources: IAM role `role-datalake-analytics`, default VPC, subnets, security
 - Receives valid DataFrame and target table metadata
 - Generates `cod_unico` column via `F.concat_ws("_", *pk_cols)` for merge key
 - Writes in **Delta Lake** format to the **raw** bucket
-- Resolves the table by path (`DeltaTable.forPath`) and performs **Delta MERGE** based on composite PK for cross-batch uniqueness
+- Resolves the table via the Glue Data Catalog (`DeltaTable.forName`) and performs **Delta MERGE** based on composite PK for cross-batch uniqueness
 - Bootstraps the physical Delta table on first write; MERGE on subsequent writes
 - Maps DMS CDC columns (`Op` / `dms_timestamp`) to catalog names (`cdc_operation` / `cdc_timestamp`)
 - Partitions data by `event_date` (derived from timestamp column via `F.to_date()`)
@@ -141,7 +141,7 @@ Data sources: IAM role `role-datalake-analytics`, default VPC, subnets, security
 ### 6. `etl_control.py` — Execution Log
 - Separate class responsible for writing metadata to the `etl_control` table
 - Records: `execution_id`, `job_name`, `source`, `execution_start`, `execution_end`, `status`, `records_read`, `records_written`, `records_rejected`, `target_partition`, `error_message`, `reference_date`
-- Resolves S3 paths and account_id dynamically via `boto3`
+- Writes to the `db_raw.etl_control` catalog table via `saveAsTable`
 
 ### 7. `quality_metrics.py` — Quality Metrics
 - Separate class responsible for saving metrics to `data_quality_metrics`
@@ -226,4 +226,4 @@ Spark configs are defined in `infra/locals.tf` in the `spark_properties` map:
 | `--conf` | Dynamic Spark configs (key=val key=val ...) | `spark.sql.shuffle.partitions=200 ...` |
 
 ## IAM Role
-`role-datalake-analytics` — minimum permissions to read landing, write raw, access Glue Catalog and KMS.
+`role-glue-job-flight-radar` — dedicated role created by this module with minimum permissions to read landing, write raw, access Glue Catalog and KMS.
