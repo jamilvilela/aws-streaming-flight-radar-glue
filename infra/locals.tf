@@ -3,8 +3,8 @@
 #===============================================================================
 
 locals {
-  # Resolve account ID from the control_account variable
-  account_id = var.control_account
+  # Resolve account ID from the current AWS caller identity
+  account_id = data.aws_caller_identity.current.account_id
 
   # S3 bucket names with account ID resolved
   buckets = {
@@ -16,14 +16,24 @@ locals {
   }
 
   # Glue script and config S3 paths (defaults if not explicitly provided)
-  script_location = var.glue_script_location != "" ? var.glue_script_location : "s3://${local.buckets.workspace}/scripts/glue-streaming-minibatch-dms/main.py"
-  config_s3_path  = var.glue_config_s3_path != "" ? var.glue_config_s3_path : "s3://${local.buckets.workspace}/config/config.json"
-  extra_py_files  = var.glue_extra_py_files != "" ? var.glue_extra_py_files : "s3://${local.buckets.workspace}/dependencies/helpers.zip"
+  script_location = var.glue_script_location != "" ? var.glue_script_location : "s3://${local.buckets.workspace}/aws-glue/jobs/flight-radar/src/main.py"
+  config_s3_path  = var.glue_config_s3_path != "" ? var.glue_config_s3_path : "s3://${local.buckets.workspace}/aws-glue/jobs/flight-radar/src/dependencies/config/config.json"
+  extra_py_files  = var.glue_extra_py_files != "" ? var.glue_extra_py_files : "s3://${local.buckets.workspace}/aws-glue/jobs/flight-radar/src/dependencies/helpers.zip"
+
+  # Single objective, two job definitions derived from glue_job_name.
+  # The processes are differentiated in code/classes via --mode (batch|streaming).
+  glue_batch_job_name     = "${var.glue_job_name}-batch"
+  glue_streaming_job_name = "${var.glue_job_name}-streaming"
+  glue_full_load_job_name = var.full_load_job_name != "" ? var.full_load_job_name : local.glue_batch_job_name
 
   # KMS key alias
-  kms_key_alias = "alias/glue-streaming-minibatch-dms"
+  kms_key_alias = "alias/glue-flight-radar"
 
-  # Spark configuration properties (passed via --conf)
+  # Spark configuration properties (applied at runtime by main.py via
+  # spark.conf.set()). NOT passed via --conf: Glue 5.0's PrepareLaunch only
+  # accepts a single key=value per --conf and rejects space-separated lists
+  # ("Invalid input to --conf"). Delta extensions/catalog are configured by
+  # Glue itself through the --datalake-formats job argument.
   spark_properties = {
     "spark.sql.adaptive.enabled"                      = "true"
     "spark.sql.adaptive.coalescePartitions.enabled"   = "true"
@@ -31,26 +41,12 @@ locals {
     "spark.sql.adaptive.advisoryPartitionSizeInBytes" = "128MB"
     "spark.sql.shuffle.partitions"                    = "200"
     "spark.sql.parquet.compression.codec"             = "snappy"
-    "spark.executor.memory"                           = "4g"
-    "spark.driver.memory"                             = "4g"
-    "spark.executor.memoryOverhead"                   = "2g"
-    "spark.driver.memoryOverhead"                     = "2g"
-    "spark.memory.offHeap.enabled"                    = "true"
-    "spark.memory.offHeap.size"                       = "2g"
-    "spark.dynamicAllocation.enabled"                 = "true"
-    "spark.dynamicAllocation.shuffleTracking.enabled" = "true"
     "spark.sql.streaming.schemaInference"             = "true"
     "spark.sql.parquet.mergeSchema"                   = "false"
-    "spark.glue.disable.optimization"                 = "false"
-    # Delta Lake / Lakehouse configs
+    # Delta Lake / Lakehouse configs (runtime-settable)
     "spark.databricks.delta.properties.defaults.autoOptimize.optimizeWrite" = "true"
     "spark.databricks.delta.properties.defaults.autoOptimize.autoCompact"   = "true"
   }
-
-  # Build the --conf string: key=value key=value ...
-  spark_conf = join(" ", [
-    for k, v in local.spark_properties : "${k}=${v}"
-  ])
 
   # Common tags merged with environment
   common_tags = merge(var.tags, {

@@ -90,7 +90,49 @@ Each table generates its own set of Parquet files. Since `include_op_for_full_lo
 | `dms_timestamp` | `TIMESTAMPTZ` | DMS timestamp |
 | `Op` | `CHAR(1)` | Operation |
 
+#### `countries.parquet` — Countries
+| Column | Type | Description |
+|---|---|---|
+| `id` | `BIGINT` | Country ID (PK) |
+| `name` | `VARCHAR(100)` | Country name |
+| `iso_code` | `VARCHAR(2)` | ISO country code |
+| `iso_numeric` | `VARCHAR(3)` | ISO numeric code |
+| `calling_code` | `VARCHAR(5)` | International calling code |
+| `created_at` | `TIMESTAMPTZ` | Creation date |
+| `updated_at` | `TIMESTAMPTZ` | Update date |
+| `dms_timestamp` | `TIMESTAMPTZ` | DMS timestamp |
+| `Op` | `CHAR(1)` | Operation |
+
+#### `aircraft_types.parquet` — Aircraft types
+| Column | Type | Description |
+|---|---|---|
+| `icao_code` | `VARCHAR(4)` | ICAO type code (PK) |
+| `manufacturer` | `VARCHAR(50)` | Manufacturer |
+| `model` | `VARCHAR(50)` | Model |
+| `category` | `VARCHAR(30)` | Category |
+| `engine_type` | `VARCHAR(30)` | Engine type |
+| `engine_count` | `SMALLINT` | Number of engines |
+| `created_at` | `TIMESTAMPTZ` | Creation date |
+| `updated_at` | `TIMESTAMPTZ` | Update date |
+| `dms_timestamp` | `TIMESTAMPTZ` | DMS timestamp |
+| `Op` | `CHAR(1)` | Operation |
+
+#### `routes.parquet` — Routes
+| Column | Type | Description |
+|---|---|---|
+| `id` | `BIGINT` | Route ID (PK) |
+| `airline_icao` | `VARCHAR(3)` | FK → `airlines` |
+| `origin_airport` | `VARCHAR(4)` | FK → `airports` (origin) |
+| `destination_airport` | `VARCHAR(4)` | FK → `airports` (destination) |
+| `equipment` | `VARCHAR(20)` | Equipment (aircraft types) |
+| `created_at` | `TIMESTAMPTZ` | Creation date |
+| `updated_at` | `TIMESTAMPTZ` | Update date |
+| `dms_timestamp` | `TIMESTAMPTZ` | DMS timestamp |
+| `Op` | `CHAR(1)` | Operation |
+
 ### CDC Behavior (streaming)
+
+CDC files are written to a dedicated prefix per table (e.g. `aircraft_cdc/`, `flights_cdc/`), produced by DMS via the `CdcPath` parameter. The streaming job reads only these CDC prefixes (`cdc_source_location`), leaving the full load folders untouched.
 
 Files in the `cdc/` folder follow the same schema as the tables, with these differences:
 
@@ -101,4 +143,4 @@ Files in the `cdc/` folder follow the same schema as the tables, with these diff
 
 ### Summary
 
-The generate_dms_data.py populates exactly these 5 tables in the `flight_radar` schema of Aurora PostgreSQL, and DMS Serverless replicates everything to the landing bucket in **Parquet + gzip** format, partitioned by date (`YYYYMMDD`), with an `Op` column to track the operation type and `dms_timestamp` for the capture time.
+The generate_dms_data.py populates exactly these 8 tables in the `flight_radar` schema of Aurora PostgreSQL, and DMS Serverless replicates everything to the landing bucket in **Parquet + gzip** format, partitioned by date (`YYYYMMDD`), with an `Op` column to track the operation type and `dms_timestamp` for the capture time.

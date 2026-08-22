@@ -1,154 +1,172 @@
 ---
 id: plan-glue-streaming-dms-cdc
-title: Implementation Plan — Glue Job Batch + Streaming (tbl_opensky_flights)
-status: migrated-to-delta
-version: 4.0
+title: Implementation Plan — Glue Job Batch + Streaming DMS CDC
+status: draft
+version: 1.0
 created: 2026-06-29
-updated: 2026-07-02
 author: Data Engineering Team
 ---
 
 # Implementation Plan
 
-> Generated from `spec.md`. Status: **migrated to Delta Lake — dual mode (batch + streaming)**.
+> Generated from `spec.md`.
 
 ## Project Structure
 
 ```
 app/
-├── src/
-│   ├── main.py              # Glue Job entry point (argparse, dynamic --conf, --mode batch|streaming)
-│   ├── __init__.py
-│   └── dependencies/        # Support modules (packaged as helpers.zip)
+├── aws-glue/                  # Glue job source + tests
+│   ├── src/
+│   │   ├── main.py            # Glue Job entry point (argparse, dynamic --conf, --mode batch|streaming)
+│   │   ├── __init__.py
+│   │   └── dependencies/      # Support modules (packaged as helpers.zip)
+│   │       ├── config_models.py # Dataclasses (Config, SourceConfig, TargetConfig, etc.)
+│   │       ├── config/        # Configuration sub-package (holds JSON files)
+│   │       │   └── config.json  #   → Unified configuration (all tables with source + target)
+│   │       ├── reader.py      # Streaming and batch data reader (Reader)
+│   │       ├── data_quality.py# Validation and quality (DataQuality) — 4 stages
+│   │       ├── writer.py      # Data Lake write (Writer) — Delta Lake
+│   │       ├── processor.py   # Orchestrator (Processor)
+│   │       ├── etl_control.py # Execution log in etl_control
+│   │       ├── quality_metrics.py # Quality metrics in data_quality_metrics
+│   │       └── aws_helper.py  # Reusable boto3 utility (AwsHelper)
+│   └── tests/                 # Unit and integration tests
 │       ├── __init__.py
-│       ├── config/          # Configuration dataclasses + JSONs (sub-package)
-│       │   ├── __init__.py  #   → Config, SourceConfig, TargetConfig, etc.
-│       │   └── config.json  #   → Unified configuration (all tables with source + target)
-│       ├── reader.py        # Streaming and batch data reader (Reader)
-│       ├── data_quality.py  # Validation and quality (DataQuality) — 4 stages
-│       ├── writer.py        # Data Lake write (Writer) — Delta Lake
-│       ├── processor.py     # Orchestrator (Processor)
-│       ├── etl_control.py   # Execution log in etl_control
-│       ├── quality_metrics.py # Quality metrics in data_quality_metrics
-│       └── aws_helper.py    # Reusable boto3 utility (AwsHelper)
-└── tests/                    # Unit and integration tests
-    ├── __init__.py
-    ├── conftest.py            # Adds app/ to sys.path
-    ├── unit/
-    │   ├── __init__.py
-    │   ├── test_config.py
-    │   ├── test_reader.py
-    │   ├── test_data_quality.py
-    │   ├── test_writer.py
-    │   └── test_processor.py
-    └── integration/
-        ├── __init__.py
-        ├── conftest.py
-        ├── test_s3_landing.py
-        ├── test_glue_catalog.py
-        └── test_pipeline_e2e.py
+│       ├── conftest.py        # Adds app/aws-glue to sys.path
+│       ├── unit/
+│       └── integration/
+└── aws-lambda/                # Lambda source (deployed separately from Glue)
+    └── start_workflow/
+        └── start_glue_job.py  # Lambda that starts the full-load Glue workflow
 infra/                     # Complete Terraform module
-├── main.tf               # Resources: Glue job, KMS, Security Config, Connection, Upload
+├── main.tf               # Module overview (no resources)
+├── kms.tf                # KMS key + alias (encryption)
+├── glue.tf               # Glue security config, VPC connection, jobs, workflow, triggers
+├── iam.tf                # IAM roles and policies (Glue + Lambda)
+├── lambda.tf             # Lambda function + permission (starts full-load job)
+├── cloudwatch.tf         # EventBridge schedule rule + target (polls DMS full load)
+├── dynamodb.tf           # Workflow lock table (single start per full load)
+├── s3.tf                 # Artifact upload (main.py, helpers.zip, config.json)
 ├── variables.tf          # Input variables
 ├── outputs.tf            # Module outputs
 ├── data.tf               # Data sources (VPC, IAM Role, Subnets, SG)
 ├── locals.tf             # Computed locals (buckets, spark_conf)
-├── versions.tf           # Provider and S3 backend
-└── terraform.tfvars      # Default variable values
-scripts/
-├── setup-env.sh          # AWS environment setup via Terraform (upload via null_resource)
-└── rollback-setup.sh     # AWS environment rollback (no S3 cleanup)
+├── versions.tf           # Provider versions
+├── terraform.tfvars      # Default variable values (gitignored)
+└── terraform.tfvars.example # Template for variable values
+ci-cd/
+├── deploy.sh             # AWS environment setup via Terraform (artifact upload via aws_s3_object)
+└── rollback.sh           # AWS environment rollback (no S3 cleanup)
 docs-sdd/
-├── skill.md              # Skill document (updated v3)
-├── feature.md            # Feature document (updated v3)
-├── prd.md                # PRD document (updated v3)
-├── agents.md             # Agents document (updated v3)
-├── spec.md               # Specification (new — from agents + PRD)
-├── plan.md               # Implementation plan (updated — from spec)
+├── skill.md              # Skill document
+├── feature.md            # Feature document
+├── prd.md                # PRD document
+├── agents.md             # Agents document
+├── spec.md               # Specification (from agents + PRD)
+├── plan.md               # Implementation plan (from spec)
 ├── arquitetura.md        # Data Lake overall architecture
 ├── schema_source_files.md # DMS source schemas
 ├── structure_source_directory.md # Landing bucket structure
 └── feature_skill.txt     # Initial feature specification
 ```
 
+## Deployment Structure (S3 Workspace Bucket)
+
+The workspace bucket `lakehouse-workspace-{account_id}` mirrors the project
+layout. Glue artifacts live under `aws-glue/jobs/flight-radar/` and Lambda
+code under `aws-lambda/flight-radar/start_workflow/`:
+
+```
+lakehouse-workspace-{account_id}/
+├── aws-glue/
+│   └── jobs/
+│       └── flight-radar/
+│           └── src/
+│               ├── main.py                          # Glue job script
+│               └── dependencies/
+│                   ├── helpers.zip                  # Support modules (archive of src/)
+│                   └── config/
+│                       └── config.json              # Unified configuration (catalog-based references)
+└── aws-lambda/
+    └── flight-radar/
+        └── start_workflow/
+            └── start_glue_job.py                    # Lambda source
+```
+
+The Glue job is named for a **single objective** (`glue_job_name = glue-flight-radar`).
+Two job definitions are derived from it and differentiated by process:
+- `glue-flight-radar-batch` — full load (`--mode=batch`)
+- `glue-flight-radar-streaming` — streaming CDC (`--mode=streaming`)
+
+The processes are differentiated in code/classes via the `--mode` argument.
+The script and config paths are resolved in `infra/locals.tf` as defaults
+pointing to the paths above.
+
 ## Configuration (JSON)
 
-### `app/src/dependencies/config/config.json` — Unified configuration (all tables)
+### `app/aws-glue/src/dependencies/config/config.json` — Unified configuration (all tables)
 ```json
 [
   {
-    "source": "flights",
-    "source_location": "s3://lakehouse-landing-{account_id}/dms/flightradar/flight_radar/flights/",
+    "source": "aircraft",
+    "order": 1,
+    "source_location": "s3://lakehouse-landing-{account_id}/dms/flightradar/flight_radar/aircraft/",
+    "cdc_source_location": "s3://lakehouse-landing-{account_id}/dms/flightradar/flight_radar/aircraft_cdc/",
     "format": "parquet",
     "cdc_config": { "op_column": "Op", "timestamp_column": "dms_timestamp", "delete_strategy": "soft_delete" },
-    "checkpoint_location": "s3://lakehouse-workspace-{account_id}/checkpoints/flights/"
-  },
-  {
-    "source": "flights_cdc",
-    "source_location": "s3://lakehouse-landing-{account_id}/dms/flightradar/flight_radar/flights_cdc/",
-    "format": "parquet",
-    "cdc_config": { "op_column": "Op", "timestamp_column": "dms_timestamp", "delete_strategy": "soft_delete" },
-    "checkpoint_location": "s3://lakehouse-workspace-{account_id}/checkpoints/flights_cdc/"
+    "checkpoint_location": "s3://lakehouse-workspace-{account_id}/checkpoints/aircraft/"
   }
 ]
 ```
 
-> **Note:** The `flights` source is used for **batch full load** (G.1X, 4 workers).
-> The `flights_cdc` source is used for **streaming CDC** (G.0.25X, 1 worker).
-> DMS `CdcPath` parameterizes the S3 prefix for CDC files, ensuring the streaming job does not reprocess full load files.
+> **Note:** Each source uses `source_location` for **batch full load** and
+> `cdc_source_location` for **streaming CDC**. DMS `CdcPath` parameterizes the
+> S3 prefix for CDC files, ensuring the streaming job does not reprocess full load files.
 
-### `app/src/dependencies/config/config.json` — Target configuration (embedded in each source)
+### Target configuration (embedded in each source)
 ```json
 {
-  "catalog": { "database": "db_raw", "table": "tbl_opensky_flights" },
-  "location": "s3://lakehouse-raw-{account_id}/tables/opensky/flights/",
-  "rejected_location": "s3://lakehouse-landing-{account_id}/dms/flightradar/flight_radar/Rejected/",
+  "catalog": { "database": "db_raw", "table": "tbl_flights" },
+  "rejected_location": "s3://lakehouse-landing-{account_id}/tables/tbl_flights/Rejected/",
   "format": "delta",
   "compression": "snappy",
   "partition_keys": [{ "name": "event_date", "type": "date" }],
-  "schema": [
-    { "name": "icao24", "type": "string", "comment": "ICAO24 aircraft code" },
-    { "name": "callsign", "type": "string", "comment": "Flight callsign" },
-    { "name": "origin_country", "type": "string", "comment": "Country of origin" },
-    { "name": "latitude", "type": "double", "comment": "Latitude" },
-    { "name": "longitude", "type": "double", "comment": "Longitude" },
-    { "name": "altitude", "type": "double", "comment": "Altitude in feet" },
-    { "name": "velocity", "type": "double", "comment": "Speed in m/s" },
-    { "name": "heading", "type": "double", "comment": "Direction in degrees" },
-    { "name": "last_contact", "type": "bigint", "comment": "Last contact (epoch)" },
-    { "name": "event_time", "type": "string", "comment": "Event timestamp" },
-    { "name": "location", "type": "string", "comment": "Location" },
-    { "name": "cod_unico", "type": "string", "comment": "PK concatenation (icao24_event_time)" }
-  ],
-  "primary_key": ["icao24", "event_time"],
-  "cod_unico_expr": { "columns": ["icao24", "event_time"], "separator": "_" },
-  "enum_columns": {}
+  "schema": {
+    "flight_id": { "type": "bigint", "nullable": false, "comment": "Flight ID (PK)" },
+    "flight_number": { "type": "string", "nullable": false, "comment": "Flight number" },
+    "status": { "type": "string", "nullable": false, "comment": "Flight status" },
+    "cod_unico": { "type": "string", "nullable": true, "comment": "PK concatenation" },
+    "Op": { "type": "string", "nullable": true, "comment": "DMS CDC operation (I/U/D)" }
+  },
+  "primary_key": ["flight_id"],
+  "cod_unico_expr": { "columns": ["flight_id"], "separator": "_" },
+  "enum_columns": {
+    "status": ["scheduled", "active", "landed", "cancelled", "diverted"]
+  }
 }
 ```
 
 ## Core Module Implementation
 
-### `config.py` — Config Class with dataclasses
+### `config_models.py` — Config Class with dataclasses
 
 **Dataclasses:**
 | Class | Fields |
 |--------|--------|
 | `SchemaField` | name, type, comment, nullable |
 | `PartitionKey` | name, type |
-| `CdcConfig` | op_column, timestamp_column, order |
-| `SourceConfig` | source, source_location, format, cdc_config, checkpoint_location |
-| `TargetConfig` | catalog, location, rejected_location, format, compression, partition_keys, schema, primary_key, enum_columns, cod_unico_expr |
-| `Config` | `_sources: List[SourceConfig]`, `source` (property → first), `sources` (property → all), `get_source(name)` (method), `from_files()`, `from_s3()`, `to_dict()` |
+| `CdcConfig` | op_column, timestamp_column, delete_strategy |
+| `SourceConfig` | source, order, source_location, cdc_source_location, format, cdc_config, checkpoint_location, target |
+| `TargetConfig` | catalog, rejected_location, format, compression, partition_keys, schema, primary_key, enum_columns, cod_unico_expr |
+| `Config` | `_sources: List[SourceConfig]`, `source` (property → first), `sources` (property → all sorted by order), `get_source(name)` (method), `from_files()`, `from_s3()`, `to_dict()` |
 
-> **v4 Change:** `Config` now supports multiple sources. The `source` (singular) field was replaced by `_sources` (list). The `source` property maintains backward compatibility by returning the first source. The `get_source(name)` method allows selecting a source by name.
-
-### `reader.py` — Reader Class (streaming + batch)
-- **Streaming:** `spark.readStream.format("parquet")` with `maxFilesPerTrigger=1`, `cleanSource=archive`, `includeExistingFiles=true`
+### `reader.py` — Reader Class (batch + streaming)
+- **Streaming:** `spark.readStream.format("parquet")` with `maxFilesPerTrigger=1`, `cleanSource=archive`, `sourceArchiveDir`, `includeExistingFiles=false`, reading `cdc_source_location`
 - **Batch:** `spark.read.format("parquet").load(source.source_location)` — reads all existing files at once
 - Checkpoint at `source.checkpoint_location` (streaming only)
 - Method `read(source, mode="streaming")` — dispatcher to `_read_streaming` or `_read_batch`
 
-### `aws_helper.py` — AwsHelper Class (new)
+### `aws_helper.py` — AwsHelper Class
 - Reusable boto3 utility, decoupled from the pipeline
 - Lazy clients: `s3`, `athena`, `glue`, `sts`, `cloudwatch`
 - `get_account_id()` → returns account ID via STS
@@ -164,28 +182,30 @@ docs-sdd/
 | 3 | `_check_enums` | Validates against allowed list in `enum_columns` |
 | 4 | `_validate_timestamps` | Pass-through (reserved) |
 
-> **Note:** The `_remove_duplicates` stage was removed — uniqueness is guaranteed by Delta MERGE on write (Writer).
+> **Note:** Uniqueness is guaranteed by the Delta MERGE on write (Writer).
 
 ### `writer.py` — Writer Class
-- **Delta Lake** write with `DeltaTable.forName()` via Glue Catalog
+- **Delta Lake** write with `DeltaTable.forName()` resolved via the Glue Data Catalog
 - Generates `cod_unico` via `F.concat_ws("_", *pk_cols)` for merge key
 - Derives `event_date` via `F.to_date()`
-- MERGE: `WHEN NOT MATCHED THEN INSERT` / `WHEN MATCHED THEN UPDATE`
+- Bootstraps the Delta table on first write; MERGE on subsequent writes
+- Maps DMS CDC columns (`Op` / `dms_timestamp`) to catalog names (`cdc_operation` / `cdc_timestamp`)
+- MERGE: `WHEN NOT MATCHED AND Op <> 'D' THEN INSERT` / `WHEN MATCHED AND Op = 'D' THEN DELETE` / `WHEN MATCHED THEN UPDATE`
 - **No manual compaction** — Delta manages via auto-optimize
 - `write_rejects()` with `_reject_table`, `_reject_rule`, `_reject_timestamp` metadata (Parquet format)
 
 ### `etl_control.py` — EtlControl Class
 - Method `register()` writes to `etl_control`
-- Resolves account_id via boto3 STS
-- Schema: execution_id, source_name, status, records_read, records_written, records_rejected, elapsed_seconds, error_message
+- Writes to the `db_raw.etl_control` catalog table via `saveAsTable`
+- Schema: execution_id, job_name, source, execution_start, execution_end, status, records_read, records_written, records_rejected, target_partition, error_message, reference_date
 
 ### `quality_metrics.py` — QualityMetrics Class
 - Method `save()` writes to `data_quality_metrics`
-- Resolves account_id via boto3 STS
-- Schema: rows_read, rows_written, rows_rejected, pipeline_status
+- Writes to the `db_raw.data_quality_metrics` catalog table via `saveAsTable`
+- Schema: database, table, processing_timestamp, metric, rule, status, failure_reason, partition, technology, reference_date
 
 ### `processor.py` — Processor Class
-- 6-stage pipeline in method `run(source, target, mode, dataframe)`:
+- Pipeline in method `run(source, target, mode, dataframe)`:
   1. Read via `Reader` (or uses pre-read DataFrame in batch mode)
   2. Validate via `DataQuality` (4 stages — no dedup)
   3. Write rejects via `Writer.write_rejects()`
@@ -193,10 +213,8 @@ docs-sdd/
   5. Register execution via `EtlControl`
   6. Save quality metrics via `QualityMetrics`
 
-> **v4 Change:** The `run()` method accepts `mode` ("streaming" \| "batch") and optional `dataframe`. In batch mode with a pre-read dataframe, the read step is skipped.
-
 ### `main.py` — Entry Point (dual mode)
-- Argument parsing via `argparse`: `--config_s3_path`, `--conf`, `--mode` (batch\|streaming)
+- Argument parsing via `argparse`: `--config_s3_path`, `--conf`, `--mode` (batch|streaming)
 - `_parse_conf()`: converts `"key=val key=val"` string to dict
 - `_init_spark()`: applies configs dynamically to `SparkSession.builder`
 - `main()`: loads config (`Config.from_s3(args.config_s3_path)`), gets sorted list via `config.sources`, dispatches `_run_batch()` or `_run_streaming()`
@@ -206,22 +224,48 @@ docs-sdd/
 
 ## Infrastructure as Code (Terraform)
 
-### Resources (`infra/main.tf`)
+### Resources (organizados por serviço em `infra/`)
 
-| Resource | Type | Description |
-|---------|------|-----------|
-| `aws_kms_key.glue` | KMS Key | SSE-KMS/CSE-KMS, 30-day rotation |
-| `aws_kms_alias.glue` | KMS Alias | `alias/glue-streaming-minibatch-dms` |
-| `aws_glue_security_configuration.glue` | Security Config | CloudWatch SSE-KMS, bookmarks CSE-KMS, S3 SSE-KMS |
-| `aws_glue_connection.vpc` | Glue Connection | NETWORK, private subnet, default SG |
-| `aws_glue_job.full_load_batch` | Glue Job (batch) | Glue 5.1, Python 3.10, G.1X, 4 workers, `--mode=batch` — processes N tables sequentially |
-| `aws_glue_job.streaming_minibatch_dms` | Glue Job (streaming) | Glue 5.1, Python 3.10, G.0.25X, 1 worker, `--mode=streaming` — N concurrent queries |
-| `aws_iam_role.eventbridge_invoke_glue` | IAM Role | Role for EventBridge to invoke Glue |
-| `aws_iam_role_policy.eventbridge_invoke_glue` | IAM Policy | Permission `glue:StartJobRun` on full_load_batch job |
-| `aws_cloudwatch_event_rule.dms_full_load_complete` | EventBridge Rule | DMS full load completed event (source=aurora-postgresql) |
-| `aws_cloudwatch_event_target.start_glue_batch` | EventBridge Target | Triggers `full_load_batch` via StartJobRun |
-| `aws_glue_trigger.start_streaming_after_full_load` | Glue Trigger | CONDITIONAL — starts streaming CDC after batch succeed |
-| `data.archive_file.helpers` + `aws_s3_object.*` | Archive + S3 Objects | Declarative — helpers.zip + main.py + JSON configs |
+| Resource | File | Type | Description |
+|---------|------|-----------|-----------|
+| `aws_kms_key.glue` | `kms.tf` | KMS Key | SSE-KMS/CSE-KMS, 30-day rotation |
+| `aws_kms_alias.glue` | `kms.tf` | KMS Alias | `alias/glue-flight-radar` |
+| `aws_glue_security_configuration.glue` | `glue.tf` | Security Config | CloudWatch SSE-KMS, bookmarks CSE-KMS, S3 SSE-KMS |
+| `aws_glue_connection.vpc` | `glue.tf` | Glue Connection | NETWORK, private subnet, default SG |
+| `aws_glue_job.full_load_batch` | `glue.tf` | Glue Job (batch) | Glue 5.0, Python 3.9, `--mode=batch` — processes N tables sequentially |
+| `aws_glue_job.streaming_minibatch` | `glue.tf` | Glue Job (streaming) | Glue 5.0, Python 3.9, `--mode=streaming` — N concurrent queries |
+| `aws_glue_workflow.dms_full_load` | `glue.tf` | Glue Workflow | `glue-flight-radar-batch-workflow` — full load → streaming |
+| `aws_glue_trigger.start_full_load` | `glue.tf` | Glue Trigger | ON_DEMAND — starts the batch job on workflow run |
+| `aws_glue_trigger.start_streaming_after_full_load` | `glue.tf` | Glue Trigger | CONDITIONAL — starts streaming CDC after batch succeed |
+| `aws_iam_role.lambda_glue_starter` | `iam.tf` | IAM Role | Role for Lambda to start the full-load workflow |
+| `aws_iam_role_policy.lambda_glue_starter` | `iam.tf` | IAM Policy | Permission `glue:StartWorkflowRun` on the full-load workflow |
+| `aws_lambda_function.glue_starter` | `lambda.tf` | Lambda Function | Starts the full-load Glue workflow (EventBridge schedule target) |
+| `aws_lambda_permission.eventbridge_invoke_glue_starter` | `lambda.tf` | Lambda Permission | Allows EventBridge to invoke the Lambda |
+| `aws_cloudwatch_event_rule.full_load_complete` | `cloudwatch.tf` | EventBridge Rule | Schedule `rate()` — polls DMS task status until full load completes |
+| `aws_cloudwatch_event_target.start_glue_batch` | `cloudwatch.tf` | EventBridge Target | Triggers the Lambda via InvokeFunction |
+| `aws_dynamodb_table.workflow_lock` | `dynamodb.tf` | DynamoDB Table | Lock keyed by task ARN — guarantees single workflow start per full load |
+| `data.archive_file.helpers` + `aws_s3_object.*` | `s3.tf` | Archive + S3 Objects | Declarative — uploads main.py, helpers.zip, config.json and Lambda source to the workspace bucket |
+
+### Diagrama de Infraestrutura (Mermaid)
+
+```mermaid
+flowchart LR
+    KMS["aws_kms_key.glue"] --> SC["aws_glue_security_configuration.glue"]
+    KMS --> ALIAS["aws_kms_alias.glue"]
+    SC --> BATCH["aws_glue_job.full_load_batch"]
+    SC --> STREAM["aws_glue_job.streaming_minibatch"]
+    CONN["aws_glue_connection.vpc"] --> BATCH
+    CONN --> STREAM
+    BATCH --> TRIG["aws_glue_trigger.start_streaming_after_full_load"]
+    TRIG --> STREAM
+    RULE["aws_cloudwatch_event_rule.full_load_complete<br/>(schedule rate())"] --> TARGET["aws_cloudwatch_event_target.start_glue_batch"]
+    TARGET --> LAMBDA["aws_lambda_function.glue_starter"]
+    LAMBDA --> LOCK["aws_dynamodb_table.workflow_lock"]
+    LAMBDA --> WF["aws_glue_workflow.dms_full_load"]
+    WF --> BATCH
+    ROLE["aws_iam_role.lambda_glue_starter"] --> LAMBDA
+    ARCH["data.archive_file.helpers"] --> OBJ["aws_s3_object.*"]
+```
 
 ### Spark Configs (--conf)
 
@@ -229,24 +273,38 @@ Defined in `locals.tf` as `spark_properties` and converted to `spark_conf` strin
 
 - AQE enabled, shuffle=200, 4g executor/driver memory
 - Off-heap 2g, dynamic allocation, Snappy compression
+- Delta auto-optimize (optimizeWrite/autoCompact) + Delta catalog extension
 - Applied dynamically in `main.py` via `_parse_conf()` + `SparkSession.builder.config()`
 
 ### Event Flow
 
 ```mermaid
 sequenceDiagram
+    participant SCHED as EventBridge Schedule
+    participant Lambda as Lambda glue_starter
     participant DMS as DMS Task
-    participant EB as EventBridge
+    participant LOCK as DynamoDB Lock
+    participant WF as Glue Workflow
     participant Batch as Glue Batch Job
     participant Trigger as Glue Trigger
     participant Stream as Glue Streaming Job
 
-    DMS->>EB: Full Load Completed (5 tables)
-    EB->>Batch: StartJobRun (--mode=batch)
-    Note over Batch: Processes tables SEQUENTIALLY (order 1..5)
-    Batch-->>Trigger: Job Succeeded
-    Trigger->>Stream: StartJobRun (--mode=streaming)
-    Note over Stream: Starts N CONCURRENT queries (one per table)
+    loop A cada {interval} min
+        SCHED->>Lambda: InvokeFunction (rate)
+        Lambda->>DMS: describe_replications
+        alt Full load completo (100% e 0 tabelas carregando)
+            Lambda->>LOCK: put_item (attribute_not_exists task_arn)
+            LOCK-->>Lambda: lock adquirido (disparo único)
+            Lambda->>WF: start_workflow_run
+            WF->>Batch: ON_DEMAND trigger (--mode=batch)
+            Note over Batch: Processes tables SEQUENTIALLY (order 1..8)
+            Batch-->>Trigger: Job Succeeded
+            Trigger->>Stream: StartJobRun (--mode=streaming)
+            Note over Stream: Starts N CONCURRENT queries (one per table)
+        else Full load ainda em andamento
+            Lambda-->>SCHED: skip (aguarda próximo ciclo)
+        end
+    end
     Note over DMS: DMS continues writing CDC to separate prefixes (CdcPath)
 ```
 
@@ -254,28 +312,29 @@ sequenceDiagram
 
 | Script | Function |
 |--------|---------------|
-| `scripts/setup-env.sh` | Terraform init/apply + artifact upload via `aws_s3_object` |
-| `scripts/rollback-setup.sh` | Terraform destroy **without** S3 cleanup |
+| `ci-cd/deploy.sh` | Terraform init/apply + artifact upload via `aws_s3_object` |
+| `ci-cd/rollback.sh` | Terraform destroy **without** S3 cleanup |
 
-## Timeline (Completed)
+## Timeline
 
 | Phase | Tasks | Status |
 |------|---------|--------|
 | Phase 1 | Directory structure, config JSON | ✅ Complete |
-| Phase 2 | 8 Python module implementations | ✅ Complete |
-| Phase 3 | Terraform + S3 upload via null_resource | ✅ Complete |
+| Phase 2 | Python module implementations | ✅ Complete |
+| Phase 3 | Terraform + S3 upload via `aws_s3_object` resources | ✅ Complete |
 | Phase 4 | Unit + integration tests | ✅ Complete |
-| Phase 5 | setup-env.sh + rollback-setup.sh scripts | ✅ Complete |
+| Phase 5 | deploy.sh + rollback.sh scripts | ✅ Complete |
 
 ## Deliverables
 
 | # | Deliverable | Status |
 |---|-----------|--------|
-| 1 | `app/src/main.py` + 7 modules in `app/src/dependencies/` (config/ is sub-package) | ✅ |
-| 2 | `app/src/dependencies/config/config.json` (unified config with embedded target) | ✅ |
-| 3 | `infra/` complete Terraform module (Glue Job, KMS, Security Config, Connection, Upload) | ✅ |
-| 4 | `tests/unit/` (100% coverage) | ✅ |
-| 5 | `tests/integration/` (boto3) | ✅ |
-| 6 | `scripts/setup-env.sh` + `rollback-setup.sh` (no S3 upload in scripts) | ✅ |
-| 7 | Pipeline validated and in production | ⏳ Pending |
-| 8 | `docs-sdd/` synced with current code | ✅ |
+| 1 | `app/aws-glue/src/main.py` + support modules in `app/aws-glue/src/dependencies/` (config/ holds JSON) | ✅ |
+| 2 | `app/aws-lambda/start_workflow/start_glue_job.py` (Lambda source, outside the Glue src) | ✅ |
+| 3 | `app/aws-glue/src/dependencies/config/config.json` (unified config with embedded target) | ✅ |
+| 4 | `infra/` complete Terraform module (Glue jobs, workflow, KMS, Security Config, Connection, Upload) | ✅ |
+| 5 | `app/aws-glue/tests/unit/` | ✅ |
+| 6 | `app/aws-glue/tests/integration/` (boto3) | ✅ |
+| 7 | `ci-cd/deploy.sh` + `ci-cd/rollback.sh` (no S3 upload in scripts) | ✅ |
+| 8 | Pipeline validated and in production | ⏳ Pending |
+| 9 | `docs-sdd/` synced with current code | ✅ |

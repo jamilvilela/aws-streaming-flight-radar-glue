@@ -55,12 +55,13 @@ spark = SparkSession.builder \
 
 df = spark.readStream.format("parquet") \
     .option("maxFilesPerTrigger", 1) \
-    .load("s3://bucket/landing/flights/")
+    .option("cleanSource", "archive") \
+    .option("includeExistingFiles", False) \
+    .load("s3://bucket/landing/flights_cdc/")
 
 def write_batch(df, epoch_id):
-    df.write.format("delta") \
-        .mode("append") \
-        .save("s3://bucket/raw/flights/")
+    # Delta MERGE by PK resolved via the Glue Data Catalog (forName) — cross-batch dedup
+    writer.write(df, target, source)
 
 df.writeStream \
     .trigger(processingTime="60 seconds") \
@@ -69,7 +70,7 @@ df.writeStream \
     .start() \
     .awaitTermination()
 ```
-**Idempotency:** use Delta MERGE based on composite PK to ensure cross-batch uniqueness (no need for `dropDuplicates`).
+**Idempotency:** Delta MERGE based on composite PK (via `cod_unico`) to ensure cross-batch uniqueness (no need for `dropDuplicates`).
 
 ## 6 Orchestration and Observability
 - **Orchestration:** Airflow (DAGs), EventBridge, Step Functions.  
@@ -119,9 +120,79 @@ resource "aws_s3_bucket_lifecycle_configuration" "lc" {
 }
 ```
 
-**Diagrama ASCII**
+**Fluxo da Solução (Mermaid)**
+
+```mermaid
+flowchart TD
+    AURO["Aurora PostgreSQL<br/>(schema flight_radar)"]
+    DMS["AWS DMS Serverless<br/>(full-load-and-cdc)"]
+    LAND["S3 Landing<br/>lakehouse-landing-{account_id}<br/>dms/flightradar/flight_radar/"]
+    SCHED["EventBridge Schedule<br/>rate({interval} min)"]
+    LAMBDA["Lambda glue_starter<br/>start_glue_job.py"]
+    LOCK["DynamoDB Lock<br/>glue-flight-radar-workflow-lock"]
+    WF["Glue Workflow<br/>glue-flight-radar-batch-workflow"]
+    ON_DEMAND["Glue Trigger<br/>ON_DEMAND"]
+    BATCH["Glue Job Batch<br/>glue-flight-radar-batch<br/>--mode=batch"]
+    TRIG["Glue Trigger<br/>CONDITIONAL"]
+    STREAM["Glue Job Streaming<br/>glue-flight-radar-streaming<br/>--mode=streaming"]
+    READER["Reader"]
+    DQ["DataQuality<br/>(4 estágios)"]
+    WRITER["Writer<br/>(Delta MERGE por PK)"]
+    REJ["Rejected/ (Parquet)"]
+    RAW["S3 Raw<br/>tabelas Delta (db_raw)"]
+    ETL["EtlControl"]
+    QM["QualityMetrics"]
+
+    AURO --> DMS
+    DMS --> LAND
+    SCHED --> LAMBDA
+    LAMBDA -->|describe_replications<br/>FullLoadProgressPercent==100| DMS
+    LAMBDA -->|put_item<br/>attribute_not_exists| LOCK
+    LAMBDA -->|start_workflow_run| WF
+    WF --> ON_DEMAND
+    ON_DEMAND --> BATCH
+    BATCH --> TRIG
+    TRIG --> STREAM
+    LAND --> READER
+    BATCH --> READER
+    STREAM --> READER
+    READER --> DQ
+    DQ --> WRITER
+    DQ --> REJ
+    WRITER --> RAW
+    DQ -.-> ETL
+    DQ -.-> QM
 ```
-[SOURCES] -> [CONNECTORS] -> [Kinesis/MSK] -> [S3 Landing] -> [Bronze] -> [Silver] -> [Gold] -> [Redshift/Athena/SageMaker]
+
+**Fluxo de Eventos (Mermaid)**
+
+```mermaid
+sequenceDiagram
+    participant SCHED as EventBridge Schedule
+    participant LAMBDA as Lambda glue_starter
+    participant DMS as AWS DMS
+    participant LOCK as DynamoDB Lock
+    participant WF as Glue Workflow
+    participant BATCH as Glue Batch Job
+    participant TRIG as Glue Trigger
+    participant STREAM as Glue Streaming Job
+
+    loop A cada {interval} min
+        SCHED->>LAMBDA: InvokeFunction (rate)
+        LAMBDA->>DMS: describe_replications
+        alt Full load completo (100% e 0 tabelas carregando)
+            LAMBDA->>LOCK: put_item (attribute_not_exists task_arn)
+            LOCK-->>LAMBDA: lock adquirido (disparo único)
+            LAMBDA->>WF: start_workflow_run
+            WF->>BATCH: ON_DEMAND trigger (--mode=batch)
+            Note over BATCH: Processa tabelas SEQUENCIALMENTE (order 1..8)
+            BATCH-->>TRIG: SUCCEEDED
+            TRIG->>STREAM: start_job_run (--mode=streaming)
+            Note over STREAM: N queries CONCORRENTES (uma por tabela)
+        else Full load ainda em andamento
+            LAMBDA-->>SCHED: skip (aguarda próximo ciclo)
+        end
+    end
 ```
 
 ---  

@@ -2,11 +2,9 @@
 # Data Sources — Existing AWS resources used by the Glue job
 #===============================================================================
 
-# ── IAM Role ──────────────────────────────────────────────────────────────────
+# ── AWS Account ───────────────────────────────────────────────────────────────
 
-data "aws_iam_role" "datalake_analytics" {
-  name = var.glue_iam_role_name
-}
+data "aws_caller_identity" "current" {}
 
 # ── VPC ──────────────────────────────────────────────────────────────────────
 
@@ -45,9 +43,13 @@ data "aws_subnets" "all" {
   }
 }
 
-data "aws_subnet" "all" {
-  for_each = toset(data.aws_subnets.all.ids)
-  id       = each.value
+# Subnet única usada pela conexão Glue — fonte única de verdade para AZ e
+# subnet_id. Prefere subnets privadas; caso contrário usa qualquer subnet.
+# sort() garante seleção determinística (o data source aws_subnets não
+# garante ordem estável na lista ids), evitando descasamento entre a
+# availability_zone e o subnet_id da conexão.
+data "aws_subnet" "glue" {
+  id = length(data.aws_subnets.private.ids) > 0 ? sort(data.aws_subnets.private.ids)[0] : sort(data.aws_subnets.all.ids)[0]
 }
 
 # ── Security Group ────────────────────────────────────────────────────────────

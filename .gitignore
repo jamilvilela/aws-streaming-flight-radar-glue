@@ -219,3 +219,13 @@ __marimo__/
 
 infra/.terraform/*
 .terraform*
+
+# Terraform state (never commit)
+*.tfstate
+*.tfstate.*
+terraform.tfstate.d/
+tfplan
+
+# Terraform variable values (never commit real values)
+*.tfvars
+!*.tfvars.example

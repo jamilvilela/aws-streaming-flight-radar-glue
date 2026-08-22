@@ -1,0 +1,73 @@
+#===============================================================================
+# Terraform Variable Values — Glue Flight Radar (example)
+#===============================================================================
+#
+# Copy this file to `terraform.tfvars` and adjust the values for your
+# environment. `terraform.tfvars` is gitignored to avoid committing secrets.
+#
+#   cp terraform.tfvars.example terraform.tfvars
+#
+# The Glue job is named for a single objective (`glue-flight-radar`). Two job
+# definitions are derived from it and differentiated by process:
+#   - `glue-flight-radar-batch`      (full load,  --mode=batch)
+#   - `glue-flight-radar-streaming`  (streaming,  --mode=streaming)
+
+region      = "us-east-1"
+environment = "prod"
+
+databases = {
+  raw      = "db_raw"
+  trusted  = "db_trusted"
+  business = "db_business"
+}
+
+tables = {
+  tbl_aircraft           = "tbl_aircraft"
+  tbl_airports           = "tbl_airports"
+  tbl_airlines           = "tbl_airlines"
+  tbl_flights            = "tbl_flights"
+  tbl_aircraft_positions = "tbl_aircraft_positions"
+  tbl_countries          = "tbl_countries"
+  tbl_aircraft_types     = "tbl_aircraft_types"
+  tbl_routes             = "tbl_routes"
+  etl_control            = "etl_control"
+  data_quality           = "data_quality_metrics"
+}
+
+# Single objective — do NOT use "stream-cdc" or "full-load" here.
+glue_job_name = "glue-flight-radar"
+
+# Optional override for the full-load (batch) job name.
+# Defaults to "<glue_job_name>-batch" when left empty.
+# full_load_job_name = "glue-flight-radar-batch"
+
+glue_job_role_name = "role-glue-job-flight-radar"
+
+glue_worker_type = "G.1X"
+
+glue_number_of_workers = 2
+
+glue_job_timeout = 2880
+
+glue_script_location = ""
+
+glue_extra_py_files = ""
+
+glue_config_s3_path = ""
+
+glue_connections = []
+
+# ARN of the DMS replication task that loads flight_radar. The batch-starter
+# Lambda polls this task and starts the Glue workflow once the full-load phase
+# completes. Leave empty only if there is a single replication task in the
+# account.
+# dms_replication_config_arn = "arn:aws:dms:us-east-1:123456789012:replication-config:WSZHAU45PFBRJGKLKMLPPGQBYU"
+
+# Minutes between full-load completion checks (default 5).
+# full_load_check_interval = 5
+
+tags = {
+  ManagedBy   = "terraform"
+  Environment = "prod"
+  Project     = "aws-streaming-flight-radar-glue"
+}

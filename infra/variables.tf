@@ -1,5 +1,5 @@
 #===============================================================================
-# Variables — Glue Streaming Mini-Batch DMS Module
+# Variables — Glue Streaming Mini-Batch Module
 #===============================================================================
 
 variable "region" {
@@ -14,22 +14,14 @@ variable "environment" {
   default     = "dev"
 }
 
-variable "control_account" {
-  description = "AWS account ID for the data lake"
-  type        = string
-  default     = "331504768406"
-}
-
 variable "databases" {
   description = "Glue Data Catalog database names"
   type = object({
-    landing  = string
     raw      = string
     trusted  = string
     business = string
   })
   default = {
-    landing  = ""
     raw      = "db_raw"
     trusted  = "db_trusted"
     business = "db_business"
@@ -64,34 +56,22 @@ variable "tables" {
   }
 }
 
-variable "buckets" {
-  description = "S3 bucket names (without account ID suffix)"
-  type = object({
-    landing   = string
-    raw       = string
-    trusted   = string
-    business  = string
-    workspace = string
-  })
-  default = {
-    landing   = "lakehouse-landing-331504768406"
-    raw       = "lakehouse-raw-331504768406"
-    trusted   = "lakehouse-trusted-331504768406"
-    business  = "lakehouse-business-331504768406"
-    workspace = "lakehouse-workspace-331504768406"
-  }
-}
-
 variable "glue_job_name" {
-  description = "Name of the Glue job"
+  description = "Base name of the Glue job (single objective). Both the batch and streaming job definitions derive from this value."
   type        = string
-  default     = "glue-streaming-minibatch-dms"
+  default     = "glue-flight-radar"
 }
 
-variable "glue_iam_role_name" {
-  description = "Name of the existing IAM role for Glue"
+variable "full_load_job_name" {
+  description = "Name of the full-load batch Glue job (derived from glue_job_name)"
   type        = string
-  default     = "role-datalake-analytics"
+  default     = ""
+}
+
+variable "glue_job_role_name" {
+  description = "Name of the dedicated IAM role created for the Glue jobs and interactive sessions"
+  type        = string
+  default     = "role-glue-job-flight-radar"
 }
 
 variable "glue_worker_type" {
@@ -121,19 +101,31 @@ variable "full_load_number_of_workers" {
 variable "streaming_worker_type" {
   description = "Glue worker type for the streaming (CDC) job"
   type        = string
-  default     = "G.0.25X"
+  default     = "G.1X"
 }
 
 variable "streaming_number_of_workers" {
   description = "Number of Glue workers for the streaming (CDC) job"
   type        = number
-  default     = 1
+  default     = 2
 }
 
 variable "glue_job_timeout" {
   description = "Glue job timeout in minutes"
   type        = number
   default     = 2880
+}
+
+variable "dms_replication_config_arn" {
+  description = "ARN of the DMS Serverless replication config that loads flight_radar. Used by the batch-starter Lambda to check full-load completion. Leave empty to auto-detect the single replication in the account."
+  type        = string
+  default     = ""
+}
+
+variable "full_load_check_interval" {
+  description = "Minutes between full-load completion checks (EventBridge schedule that invokes the batch-starter Lambda)"
+  type        = number
+  default     = 5
 }
 
 variable "glue_script_location" {

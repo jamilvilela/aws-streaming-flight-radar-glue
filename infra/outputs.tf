@@ -1,20 +1,40 @@
 #===============================================================================
-# Outputs — Glue Streaming Mini-Batch DMS Module
+# Outputs — Glue Streaming Mini-Batch Module
 #===============================================================================
 
 output "glue_job_id" {
-  description = "Glue job ID"
-  value       = aws_glue_job.streaming_minibatch_dms.id
+  description = "Streaming Glue job ID"
+  value       = aws_glue_job.streaming_minibatch.id
 }
 
 output "glue_job_name" {
-  description = "Glue job name"
-  value       = aws_glue_job.streaming_minibatch_dms.name
+  description = "Streaming Glue job name"
+  value       = aws_glue_job.streaming_minibatch.name
 }
 
 output "glue_job_arn" {
-  description = "Glue job ARN"
-  value       = aws_glue_job.streaming_minibatch_dms.arn
+  description = "Streaming Glue job ARN"
+  value       = aws_glue_job.streaming_minibatch.arn
+}
+
+output "full_load_job_id" {
+  description = "Full-load batch Glue job ID"
+  value       = aws_glue_job.full_load_batch.id
+}
+
+output "full_load_job_name" {
+  description = "Full-load batch Glue job name"
+  value       = aws_glue_job.full_load_batch.name
+}
+
+output "full_load_job_arn" {
+  description = "Full-load batch Glue job ARN"
+  value       = aws_glue_job.full_load_batch.arn
+}
+
+output "glue_job_role_arn" {
+  description = "ARN of the dedicated Glue job role"
+  value       = aws_iam_role.glue_job.arn
 }
 
 output "glue_security_configuration_name" {
@@ -37,9 +57,9 @@ output "kms_key_arn" {
   value       = aws_kms_key.glue.arn
 }
 
-output "spark_conf" {
-  description = "Spark configuration string passed via --conf"
-  value       = local.spark_conf
+output "spark_properties" {
+  description = "Spark configuration properties applied at runtime by main.py (spark.conf.set)"
+  value       = local.spark_properties
 }
 
 output "script_location" {
@@ -52,23 +72,24 @@ output "config_s3_path" {
   value       = local.config_s3_path
 }
 
-output "full_load_job_name" {
-  description = "Full-load batch Glue job name"
-  value       = aws_glue_job.full_load_batch.name
-}
-
-output "full_load_job_arn" {
-  description = "Full-load batch Glue job ARN"
-  value       = aws_glue_job.full_load_batch.arn
-}
 
 output "eventbridge_rule_name" {
-  description = "EventBridge rule name for DMS full load completion"
-  value       = aws_cloudwatch_event_rule.dms_full_load_complete.name
+  description = "EventBridge rule name for full load completion"
+  value       = aws_cloudwatch_event_rule.full_load_complete.name
+}
+
+output "glue_workflow_name" {
+  description = "Glue workflow name orchestrating full load -> streaming"
+  value       = aws_glue_workflow.dms_full_load.name
+}
+
+output "workflow_lock_table" {
+  description = "DynamoDB table used to start the workflow exactly once"
+  value       = aws_dynamodb_table.workflow_lock.name
 }
 
 output "glue_trigger_name" {
-  description = "Glue trigger name for starting streaming after full load"
+  description = "Glue conditional trigger name for starting streaming after full load"
   value       = aws_glue_trigger.start_streaming_after_full_load.name
 }
 
