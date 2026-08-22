@@ -122,6 +122,7 @@ class SourceConfig:
     source_location: str = ""
     cdc_source_location: str = ""
     format: str = "parquet"
+    filter: str = ""
     cdc_config: Optional[CdcConfig] = None
     checkpoint_location: str = ""
     target: TargetConfig = field(default_factory=TargetConfig)
@@ -133,6 +134,7 @@ class SourceConfig:
             "source_location": self.source_location,
             "cdc_source_location": self.cdc_source_location,
             "format": self.format,
+            "filter": self.filter,
             "cdc_config": self.cdc_config.to_dict() if self.cdc_config else None,
             "checkpoint_location": self.checkpoint_location,
             "target": self.target.to_dict(),
@@ -302,6 +304,7 @@ class Config:
                     source_location=item.get("source_location", ""),
                     cdc_source_location=item.get("cdc_source_location", ""),
                     format=item.get("format", "parquet"),
+                    filter=item.get("filter", ""),
                     cdc_config=cdc_config,
                     checkpoint_location=item.get("checkpoint_location", ""),
                     target=target,

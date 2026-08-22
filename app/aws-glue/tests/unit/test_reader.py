@@ -65,6 +65,34 @@ class TestReader:
         opts.option.assert_any_call("cleanSource", "archive")
         opts.option.assert_any_call("includeExistingFiles", "false")
 
+    def test_read_streaming_applies_filter(self, reader, spark_mock, flights_source):
+        """A non-empty source filter should be applied to streaming data."""
+        flights_source.filter = "aircraft_icao24 >= \"00\""
+        df_mock = MagicMock()
+        filtered_df = MagicMock()
+        df_mock.filter.return_value = filtered_df
+        self._mock_stream_builder(spark_mock, df_mock)
+
+        result = reader.read(flights_source)
+
+        df_mock.filter.assert_called_once_with(flights_source.filter)
+        assert result == filtered_df
+
+    def test_read_batch_applies_filter(self, reader, spark_mock, flights_source):
+        """A non-empty source filter should be applied to batch data."""
+        flights_source.filter = "status = 'active'"
+        df_mock = MagicMock()
+        filtered_df = MagicMock()
+        df_mock.filter.return_value = filtered_df
+        builder = spark_mock.read.format.return_value
+        builder.load.return_value = df_mock
+
+        result = reader.read(flights_source, mode="batch")
+
+        spark_mock.read.format.assert_called_once_with("parquet")
+        df_mock.filter.assert_called_once_with(flights_source.filter)
+        assert result == filtered_df
+
     def test_read_streaming_error(self, reader, spark_mock, flights_source):
         """Reader should raise ReaderError on streaming failure."""
         spark_mock.readStream.format.side_effect = Exception("Stream error")

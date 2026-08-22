@@ -56,10 +56,9 @@ resource "aws_iam_role_policy" "glue_catalog_connections" {
 }
 
 # ── Glue Job Role — Data Catalog tables ───────────────────────────────────────
-# Spark reads/writes Delta tables resolved through the Glue Catalog
-# (DeltaTable.forName + saveAsTable + enableHiveSupport), so the role needs
-# read AND write access to databases, tables, partitions and UDFs in the
-# catalog (create/update table metadata and partitions on every write).
+# Spark resolves existing Delta tables through the Glue Catalog. Data writes
+# go to the registered table locations; this role must not create or mutate
+# Glue Catalog metadata.
 
 resource "aws_iam_role_policy" "glue_catalog_tables" {
   name = "glue-catalog-tables"
@@ -79,14 +78,6 @@ resource "aws_iam_role_policy" "glue_catalog_tables" {
           "glue:GetPartitions",
           "glue:GetUserDefinedFunction",
           "glue:GetDataCatalogEncryptionSettings",
-          "glue:CreateDatabase",
-          "glue:CreateTable",
-          "glue:UpdateTable",
-          "glue:DeleteTable",
-          "glue:BatchCreatePartition",
-          "glue:BatchUpdatePartition",
-          "glue:UpdatePartition",
-          "glue:DeletePartition",
         ]
         Resource = [
           "arn:aws:glue:${var.region}:${local.account_id}:catalog",

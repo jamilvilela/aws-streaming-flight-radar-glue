@@ -75,6 +75,7 @@ class TestSourceConfig:
         assert cfg.source == "flights"
         assert cfg.format == "parquet"
         assert cfg.source_location == ""
+        assert cfg.filter == ""
         assert cfg.cdc_config is None
         assert cfg.checkpoint_location == ""
 
@@ -83,12 +84,14 @@ class TestSourceConfig:
             source="flights",
             source_location="s3://bucket/path",
             format="parquet",
+            filter="status = 'active'",
             cdc_config=CdcConfig(op_column="Op", timestamp_column="dms_timestamp"),
             checkpoint_location="s3://bucket/checkpoint/",
         )
         d = cfg.to_dict()
         assert d["source"] == "flights"
         assert d["source_location"] == "s3://bucket/path"
+        assert d["filter"] == "status = 'active'"
         assert d["cdc_config"]["op_column"] == "Op"
         assert d["checkpoint_location"] == "s3://bucket/checkpoint/"
 

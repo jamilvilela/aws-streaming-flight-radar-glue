@@ -71,6 +71,8 @@ class Reader:
                 .format(source.format)
                 .load(source.source_location)
             )
+            if source.filter:
+                df = df.filter(source.filter)
             logger.info("Batch DataFrame created from %s", source.source_location)
             return df
         except Exception as exc:
@@ -98,6 +100,8 @@ class Reader:
                 .option("includeExistingFiles", "false")
                 .load(cdc_path)
             )
+            if source.filter:
+                stream_df = stream_df.filter(source.filter)
             logger.debug("Streaming reader created for %s", cdc_path)
             return stream_df
         except Exception as exc:

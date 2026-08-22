@@ -2,6 +2,7 @@
   {
     "source": "aircraft",
     "order": 1,
+    "filter": "",
     "source_location": "s3://lakehouse-landing-{account_id}/dms/flightradar/flight_radar/aircraft/",
     "cdc_source_location": "s3://lakehouse-landing-{account_id}/dms/flightradar/flight_radar/aircraft_cdc/",
     "format": "parquet",
@@ -97,6 +98,7 @@
   {
     "source": "airports",
     "order": 2,
+    "filter": "",
     "source_location": "s3://lakehouse-landing-{account_id}/dms/flightradar/flight_radar/airports/",
     "cdc_source_location": "s3://lakehouse-landing-{account_id}/dms/flightradar/flight_radar/airports_cdc/",
     "format": "parquet",
@@ -237,6 +239,7 @@
   {
     "source": "airlines",
     "order": 3,
+    "filter": "",
     "source_location": "s3://lakehouse-landing-{account_id}/dms/flightradar/flight_radar/airlines/",
     "cdc_source_location": "s3://lakehouse-landing-{account_id}/dms/flightradar/flight_radar/airlines_cdc/",
     "format": "parquet",
@@ -332,6 +335,7 @@
   {
     "source": "flights",
     "order": 4,
+    "filter": "",
     "source_location": "s3://lakehouse-landing-{account_id}/dms/flightradar/flight_radar/flights/",
     "cdc_source_location": "s3://lakehouse-landing-{account_id}/dms/flightradar/flight_radar/flights_cdc/",
     "format": "parquet",
@@ -456,6 +460,7 @@
   {
     "source": "aircraft_positions",
     "order": 5,
+    "filter": "aircraft_icao24 >= \"00\" and aircraft_icao24 <= \"99\"",
     "source_location": "s3://lakehouse-landing-{account_id}/dms/flightradar/flight_radar/aircraft_positions_*/",
     "cdc_source_location": "s3://lakehouse-landing-{account_id}/dms/flightradar/flight_radar/aircraft_positions_cdc/",
     "format": "parquet",
@@ -573,6 +578,7 @@
   {
     "source": "countries",
     "order": 6,
+    "filter": "",
     "source_location": "s3://lakehouse-landing-{account_id}/dms/flightradar/flight_radar/countries/",
     "cdc_source_location": "s3://lakehouse-landing-{account_id}/dms/flightradar/flight_radar/countries_cdc/",
     "format": "parquet",
@@ -648,6 +654,7 @@
   {
     "source": "aircraft_types",
     "order": 7,
+    "filter": "",
     "source_location": "s3://lakehouse-landing-{account_id}/dms/flightradar/flight_radar/aircraft_types/",
     "cdc_source_location": "s3://lakehouse-landing-{account_id}/dms/flightradar/flight_radar/aircraft_types_cdc/",
     "format": "parquet",
@@ -718,6 +725,7 @@
   {
     "source": "routes",
     "order": 8,
+    "filter": "",
     "source_location": "s3://lakehouse-landing-{account_id}/dms/flightradar/flight_radar/routes/",
     "cdc_source_location": "s3://lakehouse-landing-{account_id}/dms/flightradar/flight_radar/routes_cdc/",
     "format": "parquet",
