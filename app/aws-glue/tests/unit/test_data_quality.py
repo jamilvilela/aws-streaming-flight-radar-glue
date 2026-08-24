@@ -24,8 +24,7 @@ from src.dependencies.data_quality import DataQuality
 @pytest.fixture
 def flights_target():
     return TargetConfig(
-        catalog={"database": "db_raw", "table": "tbl_flights"},
-        rejected_location="s3://landing/dms/flightradar/flight_radar/Rejected/",
+        catalog={"database": "db_raw", "table": "fr_flights"},
         format="parquet",
         compression="snappy",
         partition_keys=[PartitionKey("event_date", "date")],
@@ -151,7 +150,7 @@ class TestDataQuality:
         if not rejects.isEmpty():
             row = rejects.collect()[0]
             assert hasattr(row, "_reject_table")
-            assert row._reject_table == "tbl_flights"
+            assert row._reject_table == "fr_flights"
             assert hasattr(row, "_reject_rule")
 
     def test_resolve_type(self):
@@ -173,8 +172,7 @@ class TestDataQuality:
     def test_data_without_pk(self, spark, dq):
         """Config without PK should pass through without duplicate removal."""
         target = TargetConfig(
-            catalog={"database": "db_raw", "table": "tbl_test"},
-            rejected_location="s3://raw/tables/tbl_test/Rejected/",
+            catalog={"database": "db_raw", "table": "fr_test"},
             format="parquet",
             compression="snappy",
             partition_keys=[],

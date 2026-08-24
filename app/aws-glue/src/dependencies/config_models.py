@@ -70,12 +70,11 @@ class TargetConfig:
     Embedded inside each source entry in config.json, it holds the
     Glue Data Catalog reference, schema, partition keys and primary
     key used to write to the raw layer. The table itself is resolved
-    through the Glue Data Catalog (database.table), never by S3 path;
-    ``rejected_location`` is a plain storage area for rejected records.
+    through the Glue Data Catalog (database.table), never by S3 path.
+    Rejected records are written to the centralized tbl_rejected_records table.
     """
 
     catalog: Dict[str, str] = field(default_factory=dict)
-    rejected_location: str = ""
     format: str = "delta"
     compression: str = "snappy"
     partition_keys: List[PartitionKey] = field(default_factory=list)
@@ -95,7 +94,6 @@ class TargetConfig:
     def to_dict(self) -> Dict[str, Any]:
         return {
             "catalog": dict(self.catalog),
-            "rejected_location": self.rejected_location,
             "format": self.format,
             "compression": self.compression,
             "partition_keys": [pk.to_dict() for pk in self.partition_keys],
@@ -284,7 +282,6 @@ class Config:
 
             target = TargetConfig(
                 catalog=raw_target.get("catalog", {}),
-                rejected_location=raw_target.get("rejected_location", ""),
                 format=raw_target.get("format", "delta"),
                 compression=raw_target.get("compression", "snappy"),
                 partition_keys=parsed_partitions,

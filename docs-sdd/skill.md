@@ -105,7 +105,7 @@ Data sources: default VPC, subnets, security group (the Glue role `role-glue-job
 - Defines dataclasses for `SchemaField`, `PartitionKey`, `CdcConfig`, `TargetConfig`, `SourceConfig`, `Config`
 - Reads a **single** `config.json` with all tables (embedded source + target)
 - `SourceConfig`: `source`, `order`, `source_location`, `cdc_source_location`, `format`, `cdc_config`, `checkpoint_location`, `target`
-- `TargetConfig`: `catalog` (database, table), `rejected_location`, `format`, `compression`, `partition_keys`, `schema`, `primary_key`, `enum_columns`, `cod_unico_expr`
+- `TargetConfig`: `catalog` (database, table), `format`, `compression`, `partition_keys`, `schema`, `primary_key`, `enum_columns`, `cod_unico_expr`
 - `Config`: `sources` (list sorted by `order`), methods `from_file()` (local) and `from_s3()` (S3)
 
 ### 3. `Reader` — Data Reading (batch + streaming)
@@ -206,14 +206,14 @@ Spark configs are defined in `infra/locals.tf` in the `spark_properties` map:
 
 | Table | Purpose | Partitions |
 |--------|-----------|-----------|
-| `tbl_aircraft` | Aircraft registry | `event_date` |
-| `tbl_airports` | Airports | `event_date` |
-| `tbl_airlines` | Airlines | `event_date` |
-| `tbl_flights` | Flights fact table | `event_date` |
-| `tbl_aircraft_positions` | Positions (high volume) | `event_date` |
-| `tbl_countries` | Countries | `event_date` |
-| `tbl_aircraft_types` | Aircraft types | `event_date` |
-| `tbl_routes` | Routes | `event_date` |
+| `fr_aircraft` | Aircraft registry | `event_date` |
+| `fr_airports` | Airports | `event_date` |
+| `fr_airlines` | Airlines | `event_date` |
+| `fr_flights` | Flights fact table | `event_date` |
+| `fr_aircraft_positions` | Positions (high volume) | `event_date` |
+| `fr_countries` | Countries | `event_date` |
+| `fr_aircraft_types` | Aircraft types | `event_date` |
+| `fr_routes` | Routes | `event_date` |
 | `etl_control` | Glue Job execution control | `reference_date` |
 | `data_quality_metrics` | Quality metrics | `reference_date` |
 

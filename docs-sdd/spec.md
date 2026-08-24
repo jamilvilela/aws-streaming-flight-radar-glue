@@ -82,7 +82,7 @@ flowchart TD
 - `PartitionKey(name, type)`
 - `CdcConfig(op_column, timestamp_column, delete_strategy)`
 - `SourceConfig(source, order, source_location, cdc_source_location, format, cdc_config, checkpoint_location, target)`
-- `TargetConfig(catalog, rejected_location, format, compression, partition_keys, schema, primary_key, enum_columns, cod_unico_expr)`
+- `TargetConfig(catalog, format, compression, partition_keys, schema, primary_key, enum_columns, cod_unico_expr)`
 - `Config` with `_sources: List[SourceConfig]`, `source` property (first), `sources` (all, sorted by order), `get_source(name)` method, and `from_files()`, `from_s3()`, `to_dict()` methods
 
 **Configuration files:**
@@ -265,14 +265,14 @@ code/classes via the `--mode` argument:
 
 | Table | Database | Purpose | Partition |
 |--------|----------|-----------|----------|
-| `tbl_aircraft` | `db_raw` | Aircraft registry | `event_date` |
-| `tbl_airports` | `db_raw` | Airports | `event_date` |
-| `tbl_airlines` | `db_raw` | Airlines | `event_date` |
-| `tbl_flights` | `db_raw` | Flights fact table | `event_date` |
-| `tbl_aircraft_positions` | `db_raw` | Positions (high volume) | `event_date` |
-| `tbl_countries` | `db_raw` | Countries | `event_date` |
-| `tbl_aircraft_types` | `db_raw` | Aircraft types | `event_date` |
-| `tbl_routes` | `db_raw` | Routes | `event_date` |
+| `fr_aircraft` | `db_raw` | Aircraft registry | `event_date` |
+| `fr_airports` | `db_raw` | Airports | `event_date` |
+| `fr_airlines` | `db_raw` | Airlines | `event_date` |
+| `fr_flights` | `db_raw` | Flights fact table | `event_date` |
+| `fr_aircraft_positions` | `db_raw` | Positions (high volume) | `event_date` |
+| `fr_countries` | `db_raw` | Countries | `event_date` |
+| `fr_aircraft_types` | `db_raw` | Aircraft types | `event_date` |
+| `fr_routes` | `db_raw` | Routes | `event_date` |
 | `etl_control` | `db_raw` | Execution control | `reference_date` |
 | `data_quality_metrics` | `db_raw` | Quality metrics | `reference_date` |
 

@@ -57,14 +57,14 @@ Each of the 8 sources carries an embedded `target` definition (catalog, schema, 
 
 | Source | Target table | Partition | PK |
 |--------|-------------|-----------|-----|
-| `aircraft` | `tbl_aircraft` | `event_date` | `icao24` |
-| `airports` | `tbl_airports` | `event_date` | `icao_code` |
-| `airlines` | `tbl_airlines` | `event_date` | `icao_code` |
-| `flights` | `tbl_flights` | `event_date` | `flight_id` |
-| `aircraft_positions` | `tbl_aircraft_positions` | `event_date` | `position_id`, `recorded_at` |
-| `countries` | `tbl_countries` | `event_date` | `id` |
-| `aircraft_types` | `tbl_aircraft_types` | `event_date` | `icao_code` |
-| `routes` | `tbl_routes` | `event_date` | `id` |
+| `aircraft` | `fr_aircraft` | `event_date` | `icao24` |
+| `airports` | `fr_airports` | `event_date` | `icao_code` |
+| `airlines` | `fr_airlines` | `event_date` | `icao_code` |
+| `flights` | `fr_flights` | `event_date` | `flight_id` |
+| `aircraft_positions` | `fr_aircraft_positions` | `event_date` | `position_id`, `recorded_at` |
+| `countries` | `fr_countries` | `event_date` | `id` |
+| `aircraft_types` | `fr_aircraft_types` | `event_date` | `icao_code` |
+| `routes` | `fr_routes` | `event_date` | `id` |
 
 Example target (embedded in the flights source):
 

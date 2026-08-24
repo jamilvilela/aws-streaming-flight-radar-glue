@@ -2,7 +2,7 @@
 RejectedRecords module — Centralized rejected records writer.
 
 Writes all rejected records from any entity to a single Parquet table
-(tbl_rejected_records) with JSON payload for flexible schemas.
+(rejected_records) with JSON payload for flexible schemas.
 Uses append-only insertInto (no merge).
 """
 
@@ -30,14 +30,14 @@ class RejectedRecords:
     Writes rejected records to the centralized Parquet table.
 
     Features:
-    - Single table for all entities (tbl_rejected_records)
+    - Single table for all entities (rejected_records)
     - JSON payload column for schema-flexible rejected record storage
     - Partitioned by reference_date for query performance
     - Append-only (no merge) via insertInto
-    - Resolved through Glue Data Catalog (db_raw.tbl_rejected_records)
+    - Resolved through Glue Data Catalog (db_raw.rejected_records)
     """
 
-    TABLE_NAME = "db_raw.tbl_rejected_records"
+    TABLE_NAME = "db_raw.rejected_records"
     JSON_COLUMN = "rejected_record_json"
 
     def __init__(self, spark: SparkSession):

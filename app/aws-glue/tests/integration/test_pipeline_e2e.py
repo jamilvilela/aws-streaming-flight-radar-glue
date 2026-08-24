@@ -7,7 +7,7 @@ and validates the Delta output in the raw layer.
 Requires:
 - AWS credentials with access to S3 and Glue Data Catalog
 - A running Spark session (local or Glue) with the Delta Lake package
-- Existing landing/raw buckets and the db_raw.tbl_flights catalog table
+- Existing landing/raw buckets and the db_raw.fr_flights catalog table
 
 All tests are marked @pytest.mark.integration.
 """
@@ -49,10 +49,9 @@ def raw_bucket(account_id):
 
 @pytest.fixture
 def flights_source(account_id, raw_bucket):
-    """SourceConfig with an embedded Delta TargetConfig (db_raw.tbl_flights)."""
+    """SourceConfig with an embedded Delta TargetConfig (db_raw.fr_flights)."""
     target = TargetConfig(
-        catalog={"database": "db_raw", "table": "tbl_flights"},
-        rejected_location=f"s3://{raw_bucket}/tables/tbl_flights/Rejected/",
+        catalog={"database": "db_raw", "table": "fr_flights"},
         format="delta",
         compression="snappy",
         partition_keys=[PartitionKey("event_date", "date")],
@@ -117,7 +116,7 @@ class TestPipelineE2E:
         processor = Processor(spark)
         processor.run(flights_source, flights_source.target, mode="batch", dataframe=input_df)
 
-        raw_df = spark.read.format("delta").table("db_raw.tbl_flights")
+        raw_df = spark.read.format("delta").table("db_raw.fr_flights")
         assert raw_df.count() >= 10, f"Expected >= 10 rows, got {raw_df.count()}"
 
         assert "event_date" in raw_df.columns
@@ -142,7 +141,7 @@ class TestPipelineE2E:
         processor = Processor(spark)
         processor.run(flights_source, flights_source.target, mode="batch", dataframe=input_df)
 
-        raw_df = spark.read.format("delta").table("db_raw.tbl_flights")
+        raw_df = spark.read.format("delta").table("db_raw.fr_flights")
         statuses = [r.status for r in raw_df.select("status").distinct().collect()]
         assert "invalid_status" not in statuses, (
             "Invalid status leaked into the Delta table — rejection failed"

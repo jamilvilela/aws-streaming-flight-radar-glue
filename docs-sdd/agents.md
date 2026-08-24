@@ -96,7 +96,7 @@ with worker_type G.1X, glue_version 5.0, and script_location in the workspace bu
 
 ### To validate quality:
 ```
-@data-quality-spec Define the quality rules for the tbl_flights table 
+@data-quality-spec Define the quality rules for the fr_flights table 
 with the 4-stage pipeline.
 ```
 

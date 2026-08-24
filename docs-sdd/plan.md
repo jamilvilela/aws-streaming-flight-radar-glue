@@ -126,8 +126,7 @@ pointing to the paths above.
 ### Target configuration (embedded in each source)
 ```json
 {
-  "catalog": { "database": "db_raw", "table": "tbl_flights" },
-  "rejected_location": "s3://lakehouse-landing-{account_id}/tables/tbl_flights/Rejected/",
+  "catalog": { "database": "db_raw", "table": "fr_flights" },
   "format": "delta",
   "compression": "snappy",
   "partition_keys": [{ "name": "event_date", "type": "date" }],
@@ -157,7 +156,7 @@ pointing to the paths above.
 | `PartitionKey` | name, type |
 | `CdcConfig` | op_column, timestamp_column, delete_strategy |
 | `SourceConfig` | source, order, source_location, cdc_source_location, format, cdc_config, checkpoint_location, target |
-| `TargetConfig` | catalog, rejected_location, format, compression, partition_keys, schema, primary_key, enum_columns, cod_unico_expr |
+| `TargetConfig` | catalog, format, compression, partition_keys, schema, primary_key, enum_columns, cod_unico_expr |
 | `Config` | `_sources: List[SourceConfig]`, `source` (property → first), `sources` (property → all sorted by order), `get_source(name)` (method), `from_files()`, `from_s3()`, `to_dict()` |
 
 ### `reader.py` — Reader Class (batch + streaming)

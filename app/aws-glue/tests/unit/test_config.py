@@ -115,21 +115,20 @@ class TestTargetConfig:
         assert cfg.catalog == {}
 
     def test_database_table_properties(self):
-        cfg = TargetConfig(catalog={"database": "db_raw", "table": "tbl_flights"})
+        cfg = TargetConfig(catalog={"database": "db_raw", "table": "fr_flights"})
         assert cfg.database == "db_raw"
-        assert cfg.table == "tbl_flights"
+        assert cfg.table == "fr_flights"
 
     def test_to_dict_roundtrip(self):
         cfg = TargetConfig(
-            catalog={"database": "db_raw", "table": "tbl_test"},
-            rejected_location="s3://raw/tables/test/Rejected/",
+            catalog={"database": "db_raw", "table": "fr_test"},
             format="parquet",
             compression="snappy",
             partition_keys=[PartitionKey("event_date", "date")],
             schema=self.SAMPLE_SCHEMA,
             primary_key=["icao24", "event_time"],
             enum_columns={"status": ["active", "landed"]},
-        cod_unique_expr={"columns": ["icao24", "event_time"], "separator": "_"},
+            cod_unique_expr={"columns": ["icao24", "event_time"], "separator": "_"},
         )
         d = cfg.to_dict()
         assert d["catalog"]["database"] == "db_raw"
@@ -153,8 +152,7 @@ class TestConfig:
         },
         "checkpoint_location": "s3://workspace/checkpoints/flights/",
         "target": {
-            "catalog": {"database": "db_raw", "table": "tbl_flights"},
-            "rejected_location": "s3://landing/dms/flightradar/flight_radar/Rejected/",
+            "catalog": {"database": "db_raw", "table": "fr_flights"},
             "format": "parquet",
             "compression": "snappy",
             "partition_keys": [{"name": "event_date", "type": "date"}],
@@ -164,7 +162,7 @@ class TestConfig:
             },
             "primary_key": ["icao24", "event_time"],
             "cod_unique_expr": {"columns": ["icao24", "event_time"], "separator": "_"},
-            "enum_columns": {},
+            "enum_columns": {}
         },
     }
 
@@ -172,7 +170,7 @@ class TestConfig:
         config = Config.from_dicts(self.SOURCE_WITH_TARGET)
         assert config.source.source == "flights"
         assert config.target.database == "db_raw"
-        assert config.target.table == "tbl_flights"
+        assert config.target.table == "fr_flights"
 
     def test_from_dicts_list_source(self):
         """Source as a list should be parsed correctly."""
@@ -192,7 +190,7 @@ class TestConfig:
         try:
             config = Config.from_file(path)
             assert config.source.source == "flights"
-            assert config.target.table == "tbl_flights"
+            assert config.target.table == "fr_flights"
         finally:
             Path(path).unlink()
 

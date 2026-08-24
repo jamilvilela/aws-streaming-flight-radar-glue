@@ -47,14 +47,14 @@ databases = {
 tables = {
   etl_control  = "etl_control"
   data_quality = "data_quality_metrics"
-  tbl_aircraft = "tbl_aircraft"
-  tbl_airports = "tbl_airports"
-  tbl_airlines = "tbl_airlines"
-  tbl_flights  = "tbl_flights"
-  tbl_aircraft_positions = "tbl_aircraft_positions"
-  tbl_countries = "tbl_countries"
-  tbl_aircraft_types = "tbl_aircraft_types"
-  tbl_routes  = "tbl_routes"
+  fr_aircraft = "fr_aircraft"
+  fr_airports = "fr_airports"
+  fr_airlines = "fr_airlines"
+  fr_flights  = "fr_flights"
+  fr_aircraft_positions = "fr_aircraft_positions"
+  fr_countries = "fr_countries"
+  fr_aircraft_types = "fr_aircraft_types"
+  fr_routes  = "fr_routes"
 }
 
 metadata of target tables in ./infra/*.tf folder
@@ -69,8 +69,7 @@ metadata of target tables in ./infra/*.tf folder
     "cdc_config": { "op_column": "Op", "timestamp_column": "dms_timestamp", "delete_strategy": "soft_delete" },
     "checkpoint_location": "s3://lakehouse-workspace-{account_id}/checkpoints/aircraft/",
     "target": {
-        "catalog": { "database": "db_raw", "table": "tbl_aircraft" },
-        "rejected_location": "s3://lakehouse-landing-{account_id}/tables/tbl_aircraft/Rejected/",
+        "catalog": { "database": "db_raw", "table": "fr_aircraft" },
         "format": "delta",
         "compression": "snappy",
         "partition_keys": [{ "name": "event_date", "type": "date" }],
@@ -103,8 +102,7 @@ metadata of target tables in ./infra/*.tf folder
     "cdc_config": { "op_column": "Op", "timestamp_column": "dms_timestamp", "delete_strategy": "soft_delete" },
     "checkpoint_location": "s3://lakehouse-workspace-{account_id}/checkpoints/flights/",
     "target": {
-        "catalog": { "database": "db_raw", "table": "tbl_flights" },
-        "rejected_location": "s3://lakehouse-landing-{account_id}/tables/tbl_flights/Rejected/",
+        "catalog": { "database": "db_raw", "table": "fr_flights" },
         "format": "delta",
         "compression": "snappy",
         "partition_keys": [{ "name": "event_date", "type": "date" }],

@@ -30,8 +30,7 @@ def flights_source():
 @pytest.fixture
 def flights_target():
     return TargetConfig(
-        catalog={"database": "db_raw", "table": "tbl_flights"},
-        rejected_location="s3://landing/dms/flightradar/flight_radar/Rejected/",
+        catalog={"database": "db_raw", "table": "fr_flights"},
         format="delta",
         compression="snappy",
         partition_keys=[PartitionKey("event_date", "date")],

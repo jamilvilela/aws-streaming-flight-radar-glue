@@ -31,8 +31,7 @@ def flights_source():
 @pytest.fixture
 def flights_target():
     return TargetConfig(
-        catalog={"database": "db_raw", "table": "tbl_flights"},
-        rejected_location="s3://landing/dms/flightradar/flight_radar/Rejected/",
+        catalog={"database": "db_raw", "table": "fr_flights"},
         format="delta",
         compression="snappy",
         partition_keys=[PartitionKey("event_date", "date")],
@@ -94,8 +93,7 @@ class TestWriter:
         """_prepare_with_partitions should derive event_date from a source_column."""
         from datetime import datetime
         flights_target = TargetConfig(
-            catalog={"database": "db_raw", "table": "tbl_flights"},
-            rejected_location="s3://landing/dms/flightradar/flight_radar/Rejected/",
+            catalog={"database": "db_raw", "table": "fr_flights"},
             format="delta",
             compression="snappy",
             partition_keys=[PartitionKey("event_date", "date", source_column="scheduled_departure")],
@@ -190,11 +188,11 @@ class TestWriter:
         df = spark.createDataFrame([row], schema)
         with patch.object(df.write, "format", return_value=df.write) as mock_format, \
              patch.object(df.write, "save") as mock_save:
-            Writer._bootstrap_table(df, ["event_date"], "s3://raw/tables/tbl_flights/")
+            Writer._bootstrap_table(df, ["event_date"], "s3://raw/tables/fr_flights/")
             mock_format.assert_called_once_with("delta")
             df.write.mode.assert_called_once_with("overwrite")
             df.write.partitionBy.assert_called_once_with("event_date")
-            mock_save.assert_called_once_with("s3://raw/tables/tbl_flights/")
+            mock_save.assert_called_once_with("s3://raw/tables/fr_flights/")
 
     def test_write_bootstraps_missing_delta_table(self, writer, flights_source, flights_target):
         """A non-Delta catalog table should be bootstrapped and skip the MERGE."""
@@ -208,10 +206,10 @@ class TestWriter:
         with patch.object(writer, "_is_delta_table", return_value=False) as mock_is_delta, \
              patch.object(writer, "_bootstrap_table") as mock_bootstrap, \
              patch.object(writer, "_select_and_cast_target_schema", return_value=df), \
-             patch("src.dependencies.writer.AwsHelper.get_table_location", return_value="s3://raw/tables/tbl_flights/"), \
+             patch("src.dependencies.writer.AwsHelper.get_table_location", return_value="s3://raw/tables/fr_flights/"), \
              patch("src.dependencies.writer.DeltaTable.forName") as mock_for_name:
             writer.write(df, flights_target, flights_source)
-            mock_is_delta.assert_called_once_with("db_raw.tbl_flights")
+            mock_is_delta.assert_called_once_with("db_raw.fr_flights")
             mock_bootstrap.assert_called_once()
             mock_for_name.assert_not_called()
 
@@ -232,6 +230,6 @@ class TestWriter:
                patch.object(writer, "_select_and_cast_target_schema", return_value=df), \
              patch.object(writer, "_bootstrap_table") as mock_bootstrap:
             writer.write(df, flights_target, flights_source)
-            mock_is_delta.assert_called_once_with("db_raw.tbl_flights")
+            mock_is_delta.assert_called_once_with("db_raw.fr_flights")
             mock_bootstrap.assert_not_called()
-            mock_for_name.assert_called_once_with(writer._spark, "db_raw.tbl_flights")
+            mock_for_name.assert_called_once_with(writer._spark, "db_raw.fr_flights")

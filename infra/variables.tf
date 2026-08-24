@@ -31,26 +31,26 @@ variable "databases" {
 variable "tables" {
   description = "Glue Data Catalog table names"
   type = object({
-    tbl_aircraft           = string
-    tbl_airports           = string
-    tbl_airlines           = string
-    tbl_flights            = string
-    tbl_aircraft_positions = string
-    tbl_countries          = string
-    tbl_aircraft_types     = string
-    tbl_routes             = string
+    fr_aircraft           = string
+    fr_airports           = string
+    fr_airlines           = string
+    fr_flights            = string
+    fr_aircraft_positions = string
+    fr_countries          = string
+    fr_aircraft_types     = string
+    fr_routes             = string
     etl_control            = string
     data_quality           = string
   })
   default = {
-    tbl_aircraft           = "tbl_aircraft"
-    tbl_airports           = "tbl_airports"
-    tbl_airlines           = "tbl_airlines"
-    tbl_flights            = "tbl_flights"
-    tbl_aircraft_positions = "tbl_aircraft_positions"
-    tbl_countries          = "tbl_countries"
-    tbl_aircraft_types     = "tbl_aircraft_types"
-    tbl_routes             = "tbl_routes"
+    fr_aircraft           = "fr_aircraft"
+    fr_airports           = "fr_airports"
+    fr_airlines           = "fr_airlines"
+    fr_flights            = "fr_flights"
+    fr_aircraft_positions = "fr_aircraft_positions"
+    fr_countries          = "fr_countries"
+    fr_aircraft_types     = "fr_aircraft_types"
+    fr_routes             = "fr_routes"
     etl_control            = "etl_control"
     data_quality           = "data_quality_metrics"
   }
