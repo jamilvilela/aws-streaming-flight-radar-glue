@@ -29,24 +29,43 @@ locals {
   # KMS key alias
   kms_key_alias = "alias/glue-flight-radar"
 
-  # Spark configuration properties (applied at runtime by main.py via
-  # spark.conf.set()). NOT passed via --conf: Glue 5.0's PrepareLaunch only
-  # accepts a single key=value per --conf and rejects space-separated lists
-  # ("Invalid input to --conf"). Delta extensions/catalog are configured by
-  # Glue itself through the --datalake-formats job argument.
+  # Spark configuration properties passed directly to Glue through --conf.
+  # Join/broadcast and shuffle settings are intentionally omitted because this
+  # job does not perform joins or aggregations.
   spark_properties = {
+    # Delta Lake extensions and catalog (REQUIRED for Delta tables via Glue Catalog).
+    # These MUST be set via --conf at session bootstrap; cannot be set at runtime.
+    "spark.sql.extensions"                             = "io.delta.sql.DeltaSparkSessionExtension"
+    "spark.sql.catalog.spark_catalog"                  = "org.apache.spark.sql.delta.catalog.DeltaCatalog"
+    "spark.sql.catalogImplementation"                  = "hive"
+    "spark.hadoop.hive.metastore.client.factory.class" = "com.amazonaws.glue.catalog.metastore.AWSGlueDataCatalogHiveClientFactory"
+
+    # File discovery and small-file grouping during reads.
+    "spark.sql.files.maxPartitionBytes"                        = "256MB"
+    "spark.sql.files.openCostInBytes"                          = "32MB"
+    "spark.sql.files.maxPartitionNum"                          = "2000"
+    "spark.sql.sources.parallelPartitionDiscovery.threshold"   = "32"
+    "spark.sql.sources.parallelPartitionDiscovery.parallelism" = "10000"
+    "spark.sql.parquet.filterPushdown"                         = "true"
+    "spark.sql.parquet.enableVectorizedReader"                 = "true"
+
+    # General adaptive execution.
     "spark.sql.adaptive.enabled"                      = "true"
     "spark.sql.adaptive.coalescePartitions.enabled"   = "true"
-    "spark.sql.adaptive.skewJoin.enabled"             = "true"
     "spark.sql.adaptive.advisoryPartitionSizeInBytes" = "128MB"
-    "spark.sql.shuffle.partitions"                    = "200"
-    "spark.sql.parquet.compression.codec"             = "snappy"
-    "spark.sql.streaming.schemaInference"             = "true"
-    "spark.sql.parquet.mergeSchema"                   = "false"
-    # Delta Lake / Lakehouse configs (runtime-settable)
-    "spark.databricks.delta.properties.defaults.autoOptimize.optimizeWrite" = "true"
-    "spark.databricks.delta.properties.defaults.autoOptimize.autoCompact"   = "true"
+
+    # Delta writes, compression and automatic small-file compaction.
+    "spark.databricks.delta.optimizeWrite.enabled"   = "true"
+    "spark.databricks.delta.autoCompact.enabled"     = "true"
+    "spark.databricks.delta.autoCompact.minNumFiles" = "10"
+    "spark.databricks.delta.autoCompact.maxFileSize" = "134217728"
+    "spark.sql.parquet.compression.codec"            = "snappy"
   }
+
+  # Glue expects --conf as a Spark-submit-style string, not a JSON object.
+  spark_conf_argument = join(" ", [
+    for key, value in local.spark_properties : "--conf ${key}=${value}"
+  ])
 
   # Common tags merged with environment
   common_tags = merge(var.tags, {

@@ -12,7 +12,9 @@ from delta.tables import DeltaTable
 from pyspark.sql import DataFrame, SparkSession
 from pyspark.sql import functions as F
 
+from .aws_helper import AwsHelper
 from .config import SourceConfig, TargetConfig
+from .data_quality import DataQuality
 
 logger = logging.getLogger(__name__)
 
@@ -45,6 +47,7 @@ class Writer:
 
     def __init__(self, spark: SparkSession):
         self._spark = spark
+        self._aws_helper = AwsHelper()
 
     def write(self, df: DataFrame, target: TargetConfig, source: Optional[SourceConfig] = None) -> None:
         """
@@ -60,10 +63,10 @@ class Writer:
           - ``WHEN MATCHED THEN UPDATE SET *`` — existing records updated
 
         On the first write the physical Delta table (``_delta_log``) does not
-        exist yet, so it is bootstrapped via ``insertInto``; subsequent writes
-        perform the Delta MERGE. ``insertInto`` preserves the schema already
-        registered in the Glue Data Catalog, whereas ``saveAsTable`` can
-        replace that metadata with an invalid placeholder schema.
+        exist yet, so it is bootstrapped at the existing Glue Catalog location;
+        subsequent writes perform the Delta MERGE. The bootstrap uses
+        ``save(path)`` instead of ``saveAsTable`` so it does not update the
+        Glue Catalog metadata.
 
         Args:
             df: Validated DataFrame to write.
@@ -78,6 +81,7 @@ class Writer:
         df_with_pk = self._generate_cod_unique(df, target)
         df_to_write = self._prepare_with_partitions(df_with_pk, target, source)
         df_to_write = self._map_cdc_columns(df_to_write, source)
+        df_to_write = self._select_and_cast_target_schema(df_to_write, target)
 
         table_name = f"{target.database}.{target.table}"
         partition_cols = [pk.name for pk in target.partition_keys if pk.name in df_to_write.columns]
@@ -86,7 +90,8 @@ class Writer:
             # Bootstrap check — the Glue Catalog table is only metadata until
             # the first physical write creates _delta_log at its location.
             if not self._is_delta_table(table_name):
-                self._bootstrap_table(df_to_write, target, partition_cols, table_name)
+                table_location = self._aws_helper.get_table_location(target.database, target.table)
+                self._bootstrap_table(df_to_write, partition_cols, table_location)
                 logger.info("Created Delta table %s (bootstrap)", table_name)
                 return
 
@@ -129,6 +134,37 @@ class Writer:
                 f"Failed to merge into Delta table {table_name}: {exc}"
             ) from exc
 
+    @staticmethod
+    def _select_and_cast_target_schema(df: DataFrame, target: TargetConfig) -> DataFrame:
+        """Select target columns and cast each one to its configured type."""
+        if not target.schema:
+            logger.warning("Target schema is empty for %s; preserving DataFrame columns", target.table)
+            return df
+
+        columns = list(target.schema.items())
+        partition_fields = {
+            partition.name: partition.type
+            for partition in target.partition_keys
+            if partition.name not in target.schema
+        }
+
+        expressions = []
+        for field_name, schema_field in columns:
+            target_type = DataQuality._resolve_type(schema_field.type)
+            if field_name in df.columns:
+                expressions.append(F.col(field_name).cast(target_type).alias(field_name))
+            else:
+                expressions.append(F.lit(None).cast(target_type).alias(field_name))
+
+        for field_name, field_type in partition_fields.items():
+            target_type = DataQuality._resolve_type(field_type)
+            if field_name in df.columns:
+                expressions.append(F.col(field_name).cast(target_type).alias(field_name))
+            else:
+                expressions.append(F.lit(None).cast(target_type).alias(field_name))
+
+        return df.select(*expressions)
+
     def _is_delta_table(self, table_name: str) -> bool:
         """
         Check whether the catalog table is already a physical Delta table.
@@ -143,32 +179,6 @@ class Writer:
             return True
         except Exception:  # noqa: BLE001
             return False
-
-    def write_rejects(self, df: DataFrame, target: TargetConfig) -> None:
-        """
-        Write rejected records to the rejected location.
-
-        Args:
-            df: Rejected DataFrame (with _reject_* metadata columns).
-            target: TargetConfig with rejected_location.
-        """
-        if df.isEmpty():
-            logger.info("No rejected records for %s", target.table)
-            return
-
-        try:
-            (
-                df
-                .write
-                .mode("append")
-                .format(target.format)
-                .option("compression", target.compression)
-                .save(target.rejected_location)
-            )
-            logger.info("Wrote %d rejected rows to %s", df.count(), target.rejected_location)
-        except Exception as exc:
-            raise WriterError(f"Failed to write rejects to {target.rejected_location}: {exc}") from exc
-
 
     @staticmethod
     def _map_cdc_columns(df: DataFrame, source: Optional[SourceConfig]) -> DataFrame:
@@ -198,21 +208,21 @@ class Writer:
     @staticmethod
     def _bootstrap_table(
         df: DataFrame,
-        target: TargetConfig,
         partition_cols: list,
-        table_name: str,
+        table_location: str,
     ) -> None:
         """
         Create the physical Delta table registered in the Glue Data Catalog.
 
         The Glue Catalog table is registered upfront (EXTERNAL_TABLE), but the
         Delta transaction log (``_delta_log``) only exists after the first
-        write. On the first batch we write the full load directly via
-        ``insertInto`` materializes the Delta table without replacing the
-        schema registered in the Glue Data Catalog. The catalog definition
-        must remain authoritative for Athena and future Glue job runs.
+        write. Write directly to the catalog location with an explicit Delta
+        format so the transaction log is created without updating the catalog.
         """
-        df.write.mode("overwrite").insertInto(table_name)
+        writer = df.write.format("delta").mode("overwrite")
+        if partition_cols:
+            writer = writer.partitionBy(*partition_cols)
+        writer.save(table_location)
 
     @staticmethod
     def _generate_cod_unique(df: DataFrame, target: TargetConfig) -> DataFrame:

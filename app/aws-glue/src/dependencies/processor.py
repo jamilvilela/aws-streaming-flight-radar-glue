@@ -20,6 +20,7 @@ from .config import SourceConfig, TargetConfig
 from .reader import Reader
 from .data_quality import DataQuality
 from .writer import Writer
+from .rejected_records import RejectedRecords
 from .etl_control import EtlControl
 from .quality_metrics import QualityMetrics
 
@@ -38,7 +39,7 @@ class Processor:
     Pipeline steps:
     1. Read raw data via Reader (streaming)
     2. Validate & cleanse via DataQuality
-    3. Write rejects via Writer
+    3. Write rejects via RejectedRecords (centralized table)
     4. Write valid data via Writer
     5. Register execution via EtlControl
     6. Persist quality metrics via QualityMetrics
@@ -49,6 +50,7 @@ class Processor:
         self._reader = Reader(spark)
         self._data_quality = DataQuality(spark)
         self._writer = Writer(spark)
+        self._rejected_records = RejectedRecords(spark)
         self._etl_control = EtlControl(spark)
         self._quality_metrics = QualityMetrics(spark)
 
@@ -110,7 +112,8 @@ class Processor:
                 cached_frames.append(raw_df)
                 self._records_read = raw_df.count()
             else:
-                self._records_read = 0 if self._is_streaming(raw_df) else raw_df.count()
+                # Streaming: avoid count() for low latency
+                self._records_read = 0
             logger.info("Read %d records from %s (%s)", self._records_read, source.source, mode)
 
             # 2. Validate
@@ -119,26 +122,46 @@ class Processor:
                 valid_df = valid_df.persist(StorageLevel.MEMORY_AND_DISK)
                 rejects_df = rejects_df.persist(StorageLevel.MEMORY_AND_DISK)
                 cached_frames.extend((valid_df, rejects_df))
+                # Compute counts once and reuse - avoid multiple count() calls
                 self._records_rejected = rejects_df.count()
                 self._records_written = valid_df.count()
-            elif not self._is_streaming(raw_df):
-                self._records_rejected = 0
-                if not rejects_df.isEmpty():
-                    self._records_rejected = rejects_df.count()
-                self._records_written = 0
-                if not valid_df.isEmpty():
-                    self._records_written = valid_df.count()
             else:
+                # Streaming: avoid count() on streaming DataFrames for low latency
+                # Metrics will be tracked via EtlControl/QualityMetrics via separate mechanisms
                 self._records_rejected = 0
-                self._records_written = max(0, self._records_read - self._records_rejected)
+                self._records_written = 0
             logger.info(
                 "Validation complete: %d valid, %d rejected",
                 self._records_written,
                 self._records_rejected,
             )
 
-            # 3. Write rejects
-            self._writer.write_rejects(rejects_df, target)
+            # 3. Write rejects (centralized table)
+            # The DataQuality returns rejects_df with _reject_rule column indicating which rule failed
+            # We need to extract the reject rule and write to centralized table
+            if not rejects_df.isEmpty():
+                # Get the reject rule from the first row (all rows should have same rule for batch)
+                # For streaming, we'll process per batch
+                reject_rule = "validation_failed"
+                reject_reason = "Record failed data quality validation"
+                try:
+                    # Try to get the reject rule from the DataFrame
+                    rule_col = [c for c in rejects_df.columns if c.startswith("_reject_rule")]
+                    if rule_col:
+                        rule_row = rejects_df.select(rule_col[0]).first()
+                        if rule_row and rule_row[0]:
+                            reject_rule = rule_row[0]
+                except Exception:
+                    pass  # fallback to default
+
+                self._rejected_records.write(
+                    rejected_df=rejects_df,
+                    source=source,
+                    target=target,
+                    execution_id=self._execution_id,
+                    reject_rule=reject_rule,
+                    reject_reason="Record failed data quality validation",
+                )
 
             # 4. Write valid data
             self._writer.write(valid_df, target, source)

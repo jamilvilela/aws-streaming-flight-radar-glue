@@ -14,6 +14,7 @@ from __future__ import annotations
 import argparse
 import logging
 import sys
+from datetime import datetime, timezone
 from typing import List, Optional
 
 from pyspark.sql import SparkSession
@@ -36,6 +37,8 @@ def _parse_args(argv: Optional[list[str]] = None) -> argparse.Namespace:
     arguments into the script (e.g. ``--internal-lib-urls``) that are not
     declared here; rejecting them would fail the job at startup.
     """
+    from src.dependencies.test_rejected_records import add_test_rejected_records_arg
+
     parser = argparse.ArgumentParser(
         description="Glue Job — Multi-table Batch + Streaming CDC",
     )
@@ -45,72 +48,38 @@ def _parse_args(argv: Optional[list[str]] = None) -> argparse.Namespace:
         help="S3 path to config.json (all table definitions with sources + targets)",
     )
     parser.add_argument(
-        "--conf",
-        default="",
-        help="Spark config key=value pairs separated by space",
-    )
-    parser.add_argument(
         "--mode",
         choices=["streaming", "batch"],
         default="streaming",
         help="Execution mode: 'batch' processes all tables sequentially, 'streaming' starts concurrent queries (default: streaming)",
     )
+    add_test_rejected_records_arg(parser)
     args, _unknown = parser.parse_known_args(argv)
     return args
 
 
-def _parse_conf(conf_str: str) -> dict[str, str]:
-    """
-    Parse a --conf string like 'key=val key=val' into a dict.
-
-    The string is space-separated; each token must be in key=value format.
-    """
-    configs: dict[str, str] = {}
-    if not conf_str:
-        return configs
-    for item in conf_str.strip().split():
-        if "=" in item:
-            key, value = item.split("=", 1)
-            configs[key.strip()] = value.strip()
-        else:
-            logger.warning("Ignoring malformed conf entry: %s", item)
-    return configs
-
-
-def _init_spark(spark_configs: dict[str, str] | None = None) -> SparkSession:
+def _init_spark() -> SparkSession:
     """
     Create and configure a SparkSession with Delta support.
 
-    In AWS Glue the SparkSession is normally created by the runtime BEFORE
-    the script runs, so ``builder.config(...)`` would be ignored. However,
-    in this job the session is created by the script's builder (observed:
-    the SparkContext is submitted with the script's appName), which means
-    ``--datalake-formats=delta`` only adds the Delta JAR to the classpath
-    WITHOUT configuring the session extensions.
+    IMPORTANT: In AWS Glue, the SparkSession should be configured primarily
+    via the job's ``--conf`` parameters (applied by the Glue runtime BEFORE
+    this script runs). This function should only set configs that are NOT
+    provided via job parameters, or use ``getOrCreate()`` to attach to the
+    existing session created by the runtime.
 
-    The Delta extensions/catalog MUST be set at session bootstrap (they
-    cannot be changed at runtime via ``spark.conf.set()``), so they are
-    declared on the builder here. The session uses the Hive metastore
-    (``spark.sql.catalogImplementation=hive``) and points its metastore
-    client at the Glue Data Catalog via the
-    ``AWSGlueDataCatalogHiveClientFactory`` — this is what makes the
-    ``db_raw`` tables resolvable by name (``DeltaTable.forName``). Without
-    the client factory the session falls back to an embedded Derby
-    metastore, which has no ``db_raw`` schema. Runtime-settable configs
-    from ``--conf`` are applied afterwards via ``spark.conf.set()``.
+    The ``--datalake-formats=delta`` job parameter adds the Delta JAR to the
+    classpath. The Delta extensions and catalog MUST be set via ``--conf``:
+      --conf spark.sql.extensions=io.delta.sql.DeltaSparkSessionExtension
+      --conf spark.sql.catalog.spark_catalog=org.apache.spark.sql.delta.catalog.DeltaCatalog
+      --conf spark.sql.catalogImplementation=hive
+      --conf spark.hadoop.hive.metastore.client.factory.class=com.amazonaws.glue.catalog.metastore.AWSGlueDataCatalogHiveClientFactory
+
+    This function uses ``getOrCreate()`` to attach to the session created by
+    the Glue runtime (which already has the ``--conf`` applied), rather than
+    creating a new session that would override those configs.
     """
-    spark = (
-        SparkSession.builder
-        .appName("glue-flight-radar")
-        .config("spark.sql.extensions", "io.delta.sql.DeltaSparkSessionExtension")
-        .config("spark.sql.catalog.spark_catalog", "org.apache.spark.sql.delta.catalog.DeltaCatalog")
-        .config("spark.sql.catalogImplementation", "hive")
-        .config(
-            "spark.hadoop.hive.metastore.client.factory.class",
-            "com.amazonaws.glue.catalog.metastore.AWSGlueDataCatalogHiveClientFactory",
-        )
-        .getOrCreate()
-    )
+    spark = SparkSession.builder.appName("glue-flight-radar").getOrCreate()
 
     # Diagnostic: log the Delta-related session configs so bootstrap issues
     # (e.g. missing DeltaSparkSessionExtension) are visible in CloudWatch.
@@ -127,14 +96,6 @@ def _init_spark(spark_configs: dict[str, str] | None = None) -> SparkSession:
         except Exception:  # noqa: BLE001 - config may not be set
             logger.info("Session config %s = <not set>", key)
 
-    if spark_configs:
-        for key, value in spark_configs.items():
-            try:
-                spark.conf.set(key, value)
-                logger.debug("Spark config: %s = %s", key, value)
-            except Exception as exc:  # noqa: BLE001 - runtime config may be read-only
-                logger.warning("Could not apply Spark config %s: %s", key, exc)
-
     return spark
 
 
@@ -149,14 +110,13 @@ def main() -> None:
         sys.exit(1)
 
     logger.info(
-        "Arguments: config=%s mode=%s",
+        "Arguments: config=%s mode=%s generate_test_rejects=%s",
         args.config_s3_path,
         args.mode,
+        args.generate_test_rejects,
     )
 
-    spark_configs = _parse_conf(args.conf)
-    logger.info("Parsed %d Spark configs from --conf", len(spark_configs))
-    spark = _init_spark(spark_configs)
+    spark = _init_spark()
     logger.info("Spark session created — version %s", spark.version)
 
     try:
@@ -177,6 +137,10 @@ def main() -> None:
 
     processor = Processor(spark)
 
+    # Generate test rejected records if requested
+    if args.generate_test_rejects:
+        _generate_test_rejected_records(spark, source_list, args.test_reject_reason)
+
     try:
         if args.mode == "batch":
             _run_batch(spark, processor, source_list)
@@ -189,6 +153,55 @@ def main() -> None:
         sys.exit(1)
 
     logger.info("Pipeline completed successfully")
+
+
+def _generate_test_rejected_records(
+    spark: SparkSession,
+    sources: List[SourceConfig],
+    reject_reason: str,
+) -> None:
+    """Generate test rejected records for all tables via the full DataQuality pipeline.
+    
+    This generates test records and passes them through the full processor pipeline
+    (DataQuality validation -> RejectedRecords -> Writer), so they exercise the
+    complete validation pipeline including null_check, type_cast, enum_check, etc.
+    """
+    logger.info("Generating test rejected records via DataQuality pipeline...")
+    from src.dependencies.test_rejected_records import TestRejectedRecordsGenerator
+    from src.dependencies.processor import Processor
+
+    generator = TestRejectedRecordsGenerator(spark)
+    processor = Processor(spark)
+    execution_id_base = f"test-rejects-{datetime.now(timezone.utc).strftime('%Y%m%d-%H%M%S')}"
+
+    try:
+        total_records = 0
+        for source in sources:
+            target = source.target
+            logger.info("Processing test records for %s via DataQuality pipeline...", source.source)
+            
+            # Generate test DataFrame
+            test_df = generator.create_test_dataframe(source)
+            if test_df.isEmpty():
+                logger.info("  No test records for %s", source.source)
+                continue
+            
+            execution_id = f"{execution_id_base}-{source.source}"
+            
+            # Run through full processor pipeline (DataQuality -> RejectedRecords -> Writer)
+            processor.run(source, target, mode="batch", dataframe=test_df)
+            
+            count = test_df.count()
+            total_records += count
+            logger.info("  %s: %d test records processed via DataQuality pipeline", source.source, count)
+
+        logger.info(
+            "Test rejected records generation completed: %d total records across %d tables",
+            total_records, len(sources)
+        )
+    except Exception as exc:
+        logger.error("Failed to generate test rejected records via pipeline: %s", exc, exc_info=True)
+        raise
 
 
 def _run_streaming(
@@ -222,13 +235,35 @@ def _run_streaming(
             tgt: TargetConfig = target,
         ) -> None:
             """Process a single micro-batch through the pipeline."""
+            # Avoid df.count() in streaming for low latency - log batch_id only
             logger.info(
-                "[%s] batch_id=%d with %d rows",
-                src.source, batch_id, df.count(),
+                "[%s] batch_id=%d started",
+                src.source, batch_id,
             )
             try:
                 valid_df, rejects_df = processor._data_quality.validate(df, tgt, src)
-                processor._writer.write_rejects(rejects_df, tgt)
+                
+                # Write rejects to centralized table
+                if not rejects_df.isEmpty():
+                    reject_rule = "validation_failed"
+                    reject_reason = "Record failed data quality validation"
+                    try:
+                        rule_col = [c for c in rejects_df.columns if c.startswith("_reject_rule")]
+                        if rule_col:
+                            rule_row = rejects_df.select(rule_col[0]).first()
+                            if rule_row and rule_row[0]:
+                                reject_rule = rule_row[0]
+                    except Exception:
+                        pass
+                    processor._rejected_records.write(
+                        rejected_df=rejects_df,
+                        source=src,
+                        target=tgt,
+                        execution_id=f"stream-{src.source}-{batch_id}",
+                        reject_rule=reject_rule,
+                        reject_reason=reject_reason,
+                    )
+                
                 processor._writer.write(valid_df, tgt, src)
                 logger.info("[%s] batch %d done", src.source, batch_id)
             except Exception as exc:

@@ -115,12 +115,6 @@ class TestWriter:
         assert "event_date" in result.columns
         assert str(result.collect()[0].event_date) == "2026-06-30"
 
-    def test_write_rejects_empty(self, writer, flights_target):
-        """Writing empty rejects should do nothing."""
-        df = MagicMock()
-        df.isEmpty.return_value = True
-        writer.write_rejects(df, flights_target)  # Should not raise
-
     def test_write_empty_delta(self, writer, flights_source, flights_target):
         """Writing empty DataFrame with Delta should not fail."""
         df = MagicMock()
@@ -148,6 +142,20 @@ class TestWriter:
         assert result is df
         df.withColumn.assert_not_called()
 
+    def test_select_and_cast_target_schema(self, spark, flights_target):
+        """Target selection drops extras and casts configured and partition columns."""
+        df = spark.createDataFrame([(1, "AA", "active", "ignored")], [
+            "flight_id", "airline_code", "status", "extra",
+        ])
+
+        result = Writer._select_and_cast_target_schema(df, flights_target)
+
+        assert result.columns == [
+            "flight_id", "airline_code", "status", "event_date",
+        ]
+        assert result.schema["flight_id"].dataType.simpleString() == "bigint"
+        assert result.schema["event_date"].dataType.simpleString() == "date"
+
     def test_map_cdc_columns_renames(self, spark, flights_source):
         """CDC short names (Op/dms_timestamp) should be renamed to catalog names."""
         rows = [(1, "I", None)]
@@ -170,7 +178,7 @@ class TestWriter:
         result = writer._map_cdc_columns(df, None)
         assert result is df
 
-    def test_bootstrap_table_partitioned(self, spark, flights_target):
+    def test_bootstrap_table_partitioned(self, writer, spark, flights_target):
         """_bootstrap_table should write delta with the configured partitions."""
         row = (1, "AA", "active", None)
         schema = StructType([
@@ -180,9 +188,13 @@ class TestWriter:
             StructField("event_date", TimestampType(), True),
         ])
         df = spark.createDataFrame([row], schema)
-        with patch.object(df.write, "insertInto") as mock_insert:
-            Writer._bootstrap_table(df, flights_target, ["event_date"], "db_raw.tbl_flights")
-            mock_insert.assert_called_once_with("db_raw.tbl_flights")
+        with patch.object(df.write, "format", return_value=df.write) as mock_format, \
+             patch.object(df.write, "save") as mock_save:
+            Writer._bootstrap_table(df, ["event_date"], "s3://raw/tables/tbl_flights/")
+            mock_format.assert_called_once_with("delta")
+            df.write.mode.assert_called_once_with("overwrite")
+            df.write.partitionBy.assert_called_once_with("event_date")
+            mock_save.assert_called_once_with("s3://raw/tables/tbl_flights/")
 
     def test_write_bootstraps_missing_delta_table(self, writer, flights_source, flights_target):
         """A non-Delta catalog table should be bootstrapped and skip the MERGE."""
@@ -195,6 +207,8 @@ class TestWriter:
 
         with patch.object(writer, "_is_delta_table", return_value=False) as mock_is_delta, \
              patch.object(writer, "_bootstrap_table") as mock_bootstrap, \
+             patch.object(writer, "_select_and_cast_target_schema", return_value=df), \
+             patch("src.dependencies.writer.AwsHelper.get_table_location", return_value="s3://raw/tables/tbl_flights/"), \
              patch("src.dependencies.writer.DeltaTable.forName") as mock_for_name:
             writer.write(df, flights_target, flights_source)
             mock_is_delta.assert_called_once_with("db_raw.tbl_flights")
@@ -215,6 +229,7 @@ class TestWriter:
 
         with patch.object(writer, "_is_delta_table", return_value=True) as mock_is_delta, \
              patch("src.dependencies.writer.DeltaTable.forName", return_value=delta_table_mock) as mock_for_name, \
+               patch.object(writer, "_select_and_cast_target_schema", return_value=df), \
              patch.object(writer, "_bootstrap_table") as mock_bootstrap:
             writer.write(df, flights_target, flights_source)
             mock_is_delta.assert_called_once_with("db_raw.tbl_flights")

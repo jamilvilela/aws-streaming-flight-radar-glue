@@ -58,13 +58,23 @@ def run_mocks(processor):
     """Wire Processor.run's collaborators with configurable mocks."""
     raw_df = MagicMock()
     raw_df.isStreaming = False
+    raw_df.persist.return_value = raw_df  # persist returns self for chaining
+    raw_df.count.return_value = 1  # default count for batch mode
+    
     valid_df = MagicMock()
+    valid_df.persist.return_value = valid_df
+    valid_df.isEmpty.return_value = False
+    valid_df.count.return_value = 1
+    
     rejects_df = MagicMock()
+    rejects_df.persist.return_value = rejects_df
+    rejects_df.isEmpty.return_value = True  # default no rejects
+    rejects_df.count.return_value = 0
 
     processor._reader.read = MagicMock(return_value=raw_df)
     processor._data_quality.validate = MagicMock(return_value=(valid_df, rejects_df))
     processor._writer.write = MagicMock()
-    processor._writer.write_rejects = MagicMock()
+    processor._rejected_records.write = MagicMock()
     processor._etl_control.register = MagicMock()
     processor._quality_metrics.save = MagicMock()
 
@@ -88,7 +98,7 @@ class TestProcessor:
         run_mocks["valid"].count.return_value = 1
         run_mocks["rejects"].isEmpty.return_value = True
 
-        processor.run(flights_source, flights_target)
+        processor.run(flights_source, flights_target, mode="batch")
 
         assert processor._execution_id != ""
         assert processor._records_read == 1
@@ -99,10 +109,11 @@ class TestProcessor:
         """Pipeline should handle rows that fail validation."""
         run_mocks["raw"].count.return_value = 1
         run_mocks["valid"].isEmpty.return_value = True
+        run_mocks["valid"].count.return_value = 0  # No valid rows
         run_mocks["rejects"].isEmpty.return_value = False
         run_mocks["rejects"].count.return_value = 1
 
-        processor.run(flights_source, flights_target)
+        processor.run(flights_source, flights_target, mode="batch")
 
         assert processor._records_read == 1
         assert processor._records_rejected == 1
@@ -112,9 +123,11 @@ class TestProcessor:
         """Empty input should be handled gracefully."""
         run_mocks["raw"].count.return_value = 0
         run_mocks["valid"].isEmpty.return_value = True
+        run_mocks["valid"].count.return_value = 0
         run_mocks["rejects"].isEmpty.return_value = True
+        run_mocks["rejects"].count.return_value = 0
 
-        processor.run(flights_source, flights_target)
+        processor.run(flights_source, flights_target, mode="batch")
 
         assert processor._records_read == 0
         assert processor._records_written == 0

@@ -11,6 +11,7 @@ from datetime import datetime
 
 from pyspark.sql import SparkSession
 
+from .aws_helper import AwsHelper
 from .config import TargetConfig
 
 logger = logging.getLogger(__name__)
@@ -30,8 +31,12 @@ class QualityMetrics:
     in the ``db_raw.data_quality_metrics`` catalog table.
     """
 
+    DATABASE = "db_raw"
+    TABLE = "data_quality_metrics"
+
     def __init__(self, spark: SparkSession):
         self._spark = spark
+        self._aws_helper = AwsHelper()
 
     def save(
         self,
@@ -85,11 +90,10 @@ class QualityMetrics:
                 ],
             )
 
-            (
-                df.write
-                .mode("append")
-                .saveAsTable("db_raw.data_quality_metrics")
-            )
+            metrics_location = self._aws_helper.get_table_location(self.DATABASE, self.TABLE)
+            df.write.mode("append").format("parquet").option("compression", "snappy").save(metrics_location)
+            self._aws_helper.update_table_partitions(self.DATABASE, self.TABLE)
+
             logger.info("Quality metrics saved to data_quality_metrics")
         except Exception as exc:
             logger.warning("Failed to save quality metrics: %s", exc)

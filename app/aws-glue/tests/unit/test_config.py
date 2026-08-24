@@ -10,6 +10,7 @@ from pathlib import Path
 
 import pytest
 
+from src.dependencies.aws_helper import AwsHelper
 from src.dependencies.config import (
     CdcConfig,
     Config,
@@ -222,16 +223,16 @@ class TestConfig:
 
 class TestParseS3Path:
     def test_valid_s3_path(self):
-        bucket, key = Config._parse_s3_path("s3://my-bucket/path/to/file.json")
+        bucket, key = AwsHelper._parse_s3_path("s3://my-bucket/path/to/file.json")
         assert bucket == "my-bucket"
         assert key == "path/to/file.json"
 
     def test_s3_path_root(self):
-        bucket, key = Config._parse_s3_path("s3://my-bucket/")
+        bucket, key = AwsHelper._parse_s3_path("s3://my-bucket/")
         assert bucket == "my-bucket"
         assert key == ""
 
     def test_invalid_path(self):
-        bucket, key = Config._parse_s3_path("/local/path")
-        assert bucket is None
-        assert key is None
+        bucket, key = AwsHelper._parse_s3_path("/local/path")
+        assert bucket == ""
+        assert key == ""

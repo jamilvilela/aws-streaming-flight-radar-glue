@@ -35,8 +35,8 @@ resource "aws_glue_connection" "vpc" {
     # AZ sempre derivada da própria subnet escolhida — evita o erro
     # "Availability Zone <az> does not correspond to subnet" quando a AZ e o
     # subnet_id são resolvidos de fontes/ordenações diferentes.
-    availability_zone     = data.aws_subnet.glue.availability_zone
-    subnet_id             = data.aws_subnet.glue.id
+    availability_zone      = data.aws_subnet.glue.availability_zone
+    subnet_id              = data.aws_subnet.glue.id
     security_group_id_list = [data.aws_security_group.default.id]
   }
 
@@ -72,9 +72,11 @@ resource "aws_glue_job" "full_load_batch" {
     "--enable-continuous-cloudwatch-log" = "true"
 
     # Job configuration
-    "--config_s3_path" = local.config_s3_path
-    "--extra-py-files" = local.extra_py_files
-    "--mode"           = "batch"
+    "--config_s3_path"        = local.config_s3_path
+    "--extra-py-files"        = local.extra_py_files
+    "--conf"                  = local.spark_conf_argument
+    "--mode"                  = "batch"
+    "--generate-test-rejects" = "true"
 
     # Delta Lake support (writer.py importa delta.tables)
     "--datalake-formats" = "delta"
@@ -122,9 +124,11 @@ resource "aws_glue_job" "streaming_minibatch" {
     "--enable-continuous-cloudwatch-log" = "true"
 
     # Job configuration
-    "--config_s3_path" = local.config_s3_path
-    "--extra-py-files" = local.extra_py_files
-    "--mode"           = "streaming"
+    "--config_s3_path"        = local.config_s3_path
+    "--extra-py-files"        = local.extra_py_files
+    "--conf"                  = local.spark_conf_argument
+    "--mode"                  = "streaming"
+    "--generate-test-rejects" = "true"
 
     # Delta Lake support (writer.py importa delta.tables)
     "--datalake-formats" = "delta"

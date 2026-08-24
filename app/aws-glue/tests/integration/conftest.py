@@ -4,6 +4,11 @@ Integration test fixtures — boto3 clients for S3 and Glue.
 These tests require real AWS credentials and infrastructure.
 They are marked with @pytest.mark.integration and are skipped
 by default (use `pytest -m integration` to run).
+
+Before creating any client, the current identity assumes the Lake
+Formation admin role (datalake-admins-lf-role), which holds the
+LF-TBAC grants needed by the Glue Catalog tests. Override the role
+with the AWS_IT_ROLE_ARN environment variable if needed.
 """
 
 from __future__ import annotations
@@ -20,21 +25,55 @@ def pytest_configure(config):
 
 
 @pytest.fixture(scope="session")
-def account_id():
+def aws_session():
+    """Assume the LF admin role and return a boto3 Session with it.
+
+    Temporary credentials are also exported to os.environ so that code
+    paths creating their own clients (or Spark reading env vars) reuse
+    them instead of the base identity.
+    """
+    region = os.getenv("AWS_REGION", "us-east-1")
+    sts = boto3.client("sts", region_name=region)
+    identity = sts.get_caller_identity()
+    role_name = os.getenv("AWS_IT_ROLE_NAME", "datalake-admins-lf-role")
+
+    if f":assumed-role/{role_name}/" in identity["Arn"]:
+        # Already running as the target role — reuse current credentials.
+        return boto3.Session(region_name=region)
+
+    role_arn = os.getenv(
+        "AWS_IT_ROLE_ARN",
+        f"arn:aws:iam::{identity['Account']}:role/{role_name}",
+    )
+    response = sts.assume_role(RoleArn=role_arn, RoleSessionName="pytest-integration")
+    creds = response["Credentials"]
+    os.environ["AWS_ACCESS_KEY_ID"] = creds["AccessKeyId"]
+    os.environ["AWS_SECRET_ACCESS_KEY"] = creds["SecretAccessKey"]
+    os.environ["AWS_SESSION_TOKEN"] = creds["SessionToken"]
+    return boto3.Session(
+        aws_access_key_id=creds["AccessKeyId"],
+        aws_secret_access_key=creds["SecretAccessKey"],
+        aws_session_token=creds["SessionToken"],
+        region_name=region,
+    )
+
+
+@pytest.fixture(scope="session")
+def account_id(aws_session):
     """Return the current AWS account ID."""
-    return boto3.client("sts").get_caller_identity()["Account"]
+    return aws_session.client("sts").get_caller_identity()["Account"]
 
 
 @pytest.fixture(scope="session")
-def s3_client():
+def s3_client(aws_session):
     """Return a boto3 S3 client."""
-    return boto3.client("s3", region_name=os.getenv("AWS_REGION", "us-east-1"))
+    return aws_session.client("s3")
 
 
 @pytest.fixture(scope="session")
-def glue_client():
+def glue_client(aws_session):
     """Return a boto3 Glue client."""
-    return boto3.client("glue", region_name=os.getenv("AWS_REGION", "us-east-1"))
+    return aws_session.client("glue")
 
 
 @pytest.fixture(scope="session")

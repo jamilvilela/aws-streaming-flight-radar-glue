@@ -78,7 +78,11 @@ resource "aws_iam_role_policy" "glue_catalog_tables" {
           "glue:GetPartitions",
           "glue:GetUserDefinedFunction",
           "glue:GetDataCatalogEncryptionSettings",
-        ]
+          "glue:BatchCreatePartition",
+          "glue:BatchGetPartition",
+          "glue:CreatePartition",
+          "glue:UpdatePartition",
+          ]
         Resource = [
           "arn:aws:glue:${var.region}:${local.account_id}:catalog",
           "arn:aws:glue:${var.region}:${local.account_id}:database/*",

@@ -8,6 +8,7 @@ query execution, and CloudWatch metrics.
 
 from __future__ import annotations
 
+import json
 import logging
 import re
 from typing import Any, Optional
@@ -287,12 +288,12 @@ class AwsHelper:
         Publish a custom CloudWatch metric.
 
         Args:
-            namespace: CloudWatch namespace (e.g. ``\"Glue/Jobs\"``).
+            namespace: CloudWatch namespace (e.g. ``"Glue/Jobs"``).
             metric_name: Metric name.
             value: Metric value.
-            unit: Unit (default ``\"Count\"``).
+            unit: Unit (default ``"Count"``).
             dimensions: Optional list of dimension dicts, e.g.
-                ``[{\"Name\": \"JobName\", \"Value\": \"my-job\"}]``.
+                ``[{"Name": "JobName", "Value": "my-job"}]``.
         """
         try:
             self.cloudwatch.put_metric_data(
@@ -316,6 +317,203 @@ class AwsHelper:
         except Exception as exc:
             logger.warning("Failed to publish metric: %s", exc)
 
+    def get_json_from_s3(self, s3_path: str) -> dict:
+        """
+        Load and parse a JSON file from S3.
+
+        Args:
+            s3_path: S3 URI like ``s3://bucket/key/config.json``.
+
+        Returns:
+            Parsed JSON as a dict.
+
+        Raises:
+            AwsHelperError: If the object is not found or cannot be parsed.
+        """
+        try:
+            bucket, key = self._parse_s3_path(s3_path)
+            if not bucket or not key:
+                raise AwsHelperError(f"Invalid S3 path: {s3_path}")
+            obj = self.s3.get_object(Bucket=bucket, Key=key)
+            content = obj["Body"].read().decode("utf-8")
+            return json.loads(content)
+        except self.s3.exceptions.NoSuchKey as exc:
+            raise AwsHelperError(f"S3 object not found: {s3_path}") from exc
+        except json.JSONDecodeError as exc:
+            raise AwsHelperError(f"Invalid JSON in {s3_path}: {exc}") from exc
+        except Exception as exc:
+            raise AwsHelperError(f"Failed to load JSON from S3: {exc}") from exc
+
+    @staticmethod
+    def _parse_s3_path(s3_path: str) -> tuple[str, str]:
+        """Parse ``s3://bucket/key`` into ``(bucket, key)``."""
+        if not s3_path.startswith("s3://"):
+            return "", ""
+        path = s3_path.replace("s3://", "")
+        parts = path.split("/", 1)
+        bucket = parts[0]
+        key = parts[1] if len(parts) > 1 else ""
+        return bucket, key
+
+    def get_table_location(self, database: str, table: str) -> str:
+        """
+        Get the S3 location of a Glue Catalog table.
+
+        Args:
+            database: Database name in Glue Catalog.
+            table: Table name in Glue Catalog.
+
+        Returns:
+            S3 location string (e.g. ``s3://bucket/path/``).
+
+        Raises:
+            AwsHelperError: If table not found or has no location.
+        """
+        try:
+            response = self.glue.get_table(DatabaseName=database, Name=table)
+            table_data = response["Table"]
+            location = table_data.get("StorageDescriptor", {}).get("Location")
+            if not location:
+                raise AwsHelperError(
+                    f"Glue Catalog table has no S3 location: {database}.{table}"
+                )
+            return location
+        except self.glue.exceptions.EntityNotFoundException as exc:
+            raise AwsHelperError(f"Glue table not found: {database}.{table}") from exc
+        except Exception as exc:
+            raise AwsHelperError(f"Failed to get table location: {exc}") from exc
+
+    def update_table_partitions(self, database: str, table: str) -> None:
+        """
+        Update table partitions in Glue Catalog by discovering S3 partitions
+        and creating missing ones via Glue batch_create_partition API.
+
+        This should be called after ``DataFrame.write.save()`` when writing partitioned
+        data to S3, to make the new partitions visible in the Glue Catalog.
+
+        Args:
+            database: Database name in Glue Catalog.
+            table: Table name in Glue Catalog.
+
+        Raises:
+            AwsHelperError: If the partition update fails.
+        """
+        logger.info("Updating partitions for %s.%s via Glue Catalog API", database, table)
+
+        try:
+            # Get table metadata including partition keys and location
+            table_response = self.glue.get_table(DatabaseName=database, Name=table)
+            table_data = table_response["Table"]
+            
+            partition_keys = table_data.get("PartitionKeys", [])
+            if not partition_keys:
+                logger.info("Table %s.%s has no partition keys, skipping", database, table)
+                return
+            
+            location = table_data.get("StorageDescriptor", {}).get("Location")
+            if not location:
+                raise AwsHelperError(f"Table {database}.{table} has no S3 location")
+            
+            # Get existing partitions from Glue
+            existing_partitions = set()
+            paginator = self.glue.get_paginator("get_partitions")
+            for page in paginator.paginate(DatabaseName=database, TableName=table):
+                for part in page.get("Partitions", []):
+                    values = tuple(part["Values"])
+                    existing_partitions.add(values)
+            
+            # Discover partition directories in S3
+            s3_partitions = self._discover_s3_partitions(location, partition_keys)
+            
+            # Find missing partitions
+            missing_partitions = s3_partitions - existing_partitions
+            
+            if not missing_partitions:
+                logger.info("No new partitions to add for %s.%s", database, table)
+                return
+            
+            # Create missing partitions in Glue
+            partition_inputs = []
+            for values in sorted(missing_partitions):
+                partition_input = self._build_partition_input(table_data, values)
+                partition_inputs.append(partition_input)
+            
+            # Batch create partitions (max 100 per batch)
+            batch_size = 100
+            for i in range(0, len(partition_inputs), batch_size):
+                batch = partition_inputs[i:i + batch_size]
+                self.glue.batch_create_partition(
+                    DatabaseName=database,
+                    TableName=table,
+                    PartitionInputList=batch
+                )
+            
+            logger.info(
+                "Added %d new partitions to %s.%s",
+                len(missing_partitions), database, table
+            )
+            
+        except self.glue.exceptions.EntityNotFoundException as exc:
+            raise AwsHelperError(f"Glue table not found: {database}.{table}") from exc
+        except AwsHelperError:
+            raise
+        except Exception as exc:
+            raise AwsHelperError(f"Failed to update partitions: {exc}") from exc
+
+    def _discover_s3_partitions(self, location: str, partition_keys: list) -> set:
+        """Discover partition directories in S3 and return as set of value tuples."""
+        bucket, prefix = self._parse_s3_path(location)
+        if not bucket:
+            return set()
+        
+        # Ensure prefix ends with /
+        if prefix and not prefix.endswith("/"):
+            prefix += "/"
+        
+        s3_partitions = set()
+        partition_names = [pk["Name"] for pk in partition_keys]
+        
+        # Use S3 list_objects_v2 to find partition directories
+        paginator = self.s3.get_paginator("list_objects_v2")
+        for page in paginator.paginate(Bucket=bucket, Prefix=prefix, Delimiter="/"):
+            for prefix_obj in page.get("CommonPrefixes", []):
+                prefix_path = prefix_obj["Prefix"]
+                # Extract partition values from path
+                rel_path = prefix_path[len(prefix):].rstrip("/")
+                if not rel_path:
+                    continue
+                
+                parts = rel_path.split("/")
+                values = []
+                for part in parts:
+                    if "=" in part:
+                        _, value = part.split("=", 1)
+                        values.append(value)
+                    else:
+                        # Handle legacy format without explicit key
+                        values.append(part)
+                
+                if len(values) == len(partition_names):
+                    s3_partitions.add(tuple(values))
+        
+        return s3_partitions
+
+    def _build_partition_input(self, table_data: dict, values: tuple) -> dict:
+        """Build a PartitionInput dict for Glue batch_create_partition."""
+        storage_descriptor = table_data.get("StorageDescriptor", {}).copy()
+        # Update location to point to the specific partition
+        base_location = storage_descriptor.get("Location", "")
+        if base_location:
+            part_path = "/".join(f"{pk['Name']}={val}" for pk, val in zip(
+                table_data.get("PartitionKeys", []), values
+            ))
+            storage_descriptor["Location"] = f"{base_location.rstrip('/')}/{part_path}/"
+        
+        return {
+            "Values": list(values),
+            "StorageDescriptor": storage_descriptor,
+            "Parameters": table_data.get("Parameters", {}),
+        }
 
     def _client(self, service: str) -> Any:
         """Create a boto3 client using configured region/profile."""

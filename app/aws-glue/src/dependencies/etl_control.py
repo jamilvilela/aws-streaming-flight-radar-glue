@@ -12,6 +12,7 @@ from typing import Optional
 
 from pyspark.sql import SparkSession
 
+from .aws_helper import AwsHelper
 from .config import TargetConfig
 
 logger = logging.getLogger(__name__)
@@ -31,8 +32,12 @@ class EtlControl:
     The table is resolved through the Glue Data Catalog (``db_raw.etl_control``).
     """
 
+    DATABASE = "db_raw"
+    TABLE = "etl_control"
+
     def __init__(self, spark: SparkSession):
         self._spark = spark
+        self._aws_helper = AwsHelper()
 
     def register(
         self,
@@ -62,7 +67,7 @@ class EtlControl:
         """
         now = datetime.utcnow()
         partition_value = self._build_partition_value(target)
-
+        
         data = [(
             execution_id,
             "glue-flight-radar",
@@ -92,11 +97,10 @@ class EtlControl:
                 ],
             )
 
-            (
-                df.write
-                .mode("append")
-                .saveAsTable("db_raw.etl_control")
-            )
+            etl_control_location = self._aws_helper.get_table_location(self.DATABASE, self.TABLE)
+            df.write.mode("append").format("parquet").option("compression", "snappy").save(etl_control_location)
+            self._aws_helper.update_table_partitions(self.DATABASE, self.TABLE)
+
             logger.info("Execution registered in etl_control: %s", execution_id)
         except Exception as exc:
             logger.warning("Failed to register execution in etl_control: %s", exc)

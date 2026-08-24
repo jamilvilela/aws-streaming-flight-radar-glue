@@ -210,18 +210,16 @@ class Config:
     @classmethod
     def from_s3(cls, s3_path: str) -> "Config":
         """
-        Load configuration from a single S3 URI using boto3.
+        Load configuration from a single S3 URI using AwsHelper.
 
         Args:
             s3_path: S3 URI like ``s3://bucket/key/config.json``.
         """
         logger.info("Loading config from S3: %s", s3_path)
-        import boto3
+        from .aws_helper import AwsHelper
 
-        s3 = boto3.client("s3")
-        bucket, key = cls._parse_s3_path(s3_path)
-        obj = s3.get_object(Bucket=bucket, Key=key)
-        data = json.loads(obj["Body"].read().decode("utf-8"))
+        aws_helper = AwsHelper()
+        data = aws_helper.get_json_from_s3(s3_path)
         return cls.from_dicts(data)
 
 
@@ -312,14 +310,3 @@ class Config:
             )
 
         return sources
-
-    @staticmethod
-    def _parse_s3_path(s3_path: str) -> tuple:
-        """Parse ``s3://bucket/key`` into ``(bucket, key)``."""
-        if not s3_path.startswith("s3://"):
-            return None, None
-        path = s3_path.replace("s3://", "")
-        parts = path.split("/", 1)
-        bucket = parts[0]
-        key = parts[1] if len(parts) > 1 else ""
-        return bucket, key
