@@ -7,10 +7,10 @@ Used for testing/validation during batch and streaming loads.
 
 from __future__ import annotations
 
-import json
 import logging
-from datetime import datetime, timezone
+from datetime import datetime
 from typing import Dict, List
+from zoneinfo import ZoneInfo
 
 from pyspark.sql import DataFrame, SparkSession
 from pyspark.sql import functions as F
@@ -95,7 +95,7 @@ class TestRejectedRecordsGenerator:
         test_df = df \
             .withColumn("_reject_rule", F.lit("TEST_GENERATED")) \
             .withColumn("_reject_reason", F.lit("Test record generated for validation")) \
-            .withColumn("_reject_timestamp", F.lit(datetime.now(timezone.utc))) \
+            .withColumn("_reject_timestamp", F.lit(datetime.now(ZoneInfo("America/Sao_Paulo")))) \
             .withColumn("_reject_table", F.lit(target.table))
         
         return test_df
@@ -121,7 +121,7 @@ class TestRejectedRecordsGenerator:
         test_df = df \
             .withColumn("_reject_rule", F.lit("TEST_GENERATED")) \
             .withColumn("_reject_reason", F.lit("Test record generated for validation")) \
-            .withColumn("_reject_timestamp", F.lit(datetime.now(timezone.utc))) \
+            .withColumn("_reject_timestamp", F.lit(datetime.now(ZoneInfo("America/Sao_Paulo")))) \
             .withColumn("_reject_table", F.lit(target.table))
 
         # Write using RejectedRecords module

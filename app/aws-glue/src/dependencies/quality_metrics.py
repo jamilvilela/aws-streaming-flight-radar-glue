@@ -91,7 +91,13 @@ class QualityMetrics:
             )
 
             metrics_location = self._aws_helper.get_table_location(self.DATABASE, self.TABLE)
-            df.write.mode("append").format("parquet").option("compression", "snappy").save(metrics_location)
+            (df.coalesce(1).write
+             .mode("append")
+             .format("parquet")
+             .option("compression", "snappy")
+             .partitionBy("reference_date")
+             .save(metrics_location)
+            )
             self._aws_helper.update_table_partitions(self.DATABASE, self.TABLE)
 
             logger.info("Quality metrics saved to data_quality_metrics")

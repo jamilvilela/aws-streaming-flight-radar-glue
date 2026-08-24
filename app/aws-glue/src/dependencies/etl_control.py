@@ -98,7 +98,13 @@ class EtlControl:
             )
 
             etl_control_location = self._aws_helper.get_table_location(self.DATABASE, self.TABLE)
-            df.write.mode("append").format("parquet").option("compression", "snappy").save(etl_control_location)
+            (df.coalesce(1).write
+             .mode("append")
+             .format("parquet")
+             .option("compression", "snappy")
+             .partitionBy("reference_date")
+             .save(etl_control_location)
+            )
             self._aws_helper.update_table_partitions(self.DATABASE, self.TABLE)
 
             logger.info("Execution registered in etl_control: %s", execution_id)
