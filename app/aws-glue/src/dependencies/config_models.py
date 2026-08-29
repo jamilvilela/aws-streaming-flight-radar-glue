@@ -112,6 +112,7 @@ class SourceConfig:
     Includes:
     - ``order`` for batch sequencing
     - ``cdc_source_location`` for streaming reads (separate CDC prefix)
+    - ``archive_location`` for Spark streaming file archiving
     - ``target`` embedded (schema, partitions, PK) for independent writing
     """
 
@@ -119,6 +120,7 @@ class SourceConfig:
     order: int = 0
     source_location: str = ""
     cdc_source_location: str = ""
+    archive_location: str = ""
     format: str = "parquet"
     filter: str = ""
     cdc_config: Optional[CdcConfig] = None
@@ -131,6 +133,7 @@ class SourceConfig:
             "order": self.order,
             "source_location": self.source_location,
             "cdc_source_location": self.cdc_source_location,
+            "archive_location": self.archive_location,
             "format": self.format,
             "filter": self.filter,
             "cdc_config": self.cdc_config.to_dict() if self.cdc_config else None,
@@ -298,6 +301,7 @@ class Config:
                     order=item.get("order", 0),
                     source_location=item.get("source_location", ""),
                     cdc_source_location=item.get("cdc_source_location", ""),
+                    archive_location=item.get("archive_location", ""),
                     format=item.get("format", "parquet"),
                     filter=item.get("filter", ""),
                     cdc_config=cdc_config,

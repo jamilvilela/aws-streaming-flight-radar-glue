@@ -3,8 +3,9 @@
     "source": "aircraft",
     "order": 1,
     "filter": "",
-    "source_location": "s3://lakehouse-landing-{account_id}/dms/flightradar/flight_radar/aircraft/",
-    "cdc_source_location": "s3://lakehouse-landing-{account_id}/dms/flightradar/flight_radar/aircraft_cdc/",
+    "source_location": "s3://lakehouse-landing-{account_id}/dms/flightradar/flight_radar/aircraft/LOAD*.parquet",
+    "cdc_source_location": "s3://lakehouse-landing-{account_id}/dms/flightradar/flight_radar/aircraft/2*/*/*/*/*.parquet",
+    "archive_location": "s3://lakehouse-landing-{account_id}/dms/flightradar/flight_radar/aircraft_archive/",
     "format": "parquet",
     "cdc_config": {
       "op_column": "Op",
@@ -98,8 +99,9 @@
     "source": "airports",
     "order": 2,
     "filter": "",
-    "source_location": "s3://lakehouse-landing-{account_id}/dms/flightradar/flight_radar/airports/",
-    "cdc_source_location": "s3://lakehouse-landing-{account_id}/dms/flightradar/flight_radar/airports_cdc/",
+    "source_location": "s3://lakehouse-landing-{account_id}/dms/flightradar/flight_radar/airports/LOAD*.parquet",
+    "cdc_source_location": "s3://lakehouse-landing-{account_id}/dms/flightradar/flight_radar/airports/2*/*/*/*/*.parquet",
+    "archive_location": "s3://lakehouse-landing-{account_id}/dms/flightradar/flight_radar/airports_archive/",
     "format": "parquet",
     "cdc_config": {
       "op_column": "Op",
@@ -238,8 +240,9 @@
     "source": "airlines",
     "order": 3,
     "filter": "",
-    "source_location": "s3://lakehouse-landing-{account_id}/dms/flightradar/flight_radar/airlines/",
-    "cdc_source_location": "s3://lakehouse-landing-{account_id}/dms/flightradar/flight_radar/airlines_cdc/",
+    "source_location": "s3://lakehouse-landing-{account_id}/dms/flightradar/flight_radar/airlines/LOAD*.parquet",
+    "cdc_source_location": "s3://lakehouse-landing-{account_id}/dms/flightradar/flight_radar/airlines/2*/*/*/*/*.parquet",
+    "archive_location": "s3://lakehouse-landing-{account_id}/dms/flightradar/flight_radar/airlines_archive/",
     "format": "parquet",
     "cdc_config": {
       "op_column": "Op",
@@ -333,8 +336,9 @@
     "source": "flights",
     "order": 4,
     "filter": "",
-    "source_location": "s3://lakehouse-landing-{account_id}/dms/flightradar/flight_radar/flights/",
-    "cdc_source_location": "s3://lakehouse-landing-{account_id}/dms/flightradar/flight_radar/flights_cdc/",
+    "source_location": "s3://lakehouse-landing-{account_id}/dms/flightradar/flight_radar/flights/LOAD*.parquet",
+    "cdc_source_location": "s3://lakehouse-landing-{account_id}/dms/flightradar/flight_radar/flights/2*/*/*/*/*.parquet",
+    "archive_location": "s3://lakehouse-landing-{account_id}/dms/flightradar/flight_radar/flights_archive/",
     "format": "parquet",
     "cdc_config": {
       "op_column": "Op",
@@ -457,8 +461,9 @@
     "source": "aircraft_positions",
     "order": 5,
     "filter": "aircraft_icao24 >= \"00\" and aircraft_icao24 <= \"99\"",
-    "source_location": "s3://lakehouse-landing-{account_id}/dms/flightradar/flight_radar/aircraft_positions_2026_*/",
-    "cdc_source_location": "s3://lakehouse-landing-{account_id}/dms/flightradar/flight_radar/aircraft_positions_cdc/",
+    "source_location": "s3://lakehouse-landing-{account_id}/dms/flightradar/flight_radar/aircraft_positions_2026_*/LOAD*.parquet",
+    "cdc_source_location": "s3://lakehouse-landing-{account_id}/dms/flightradar/flight_radar/aircraft_positions_2*/2*/*/*/*/*.parquet",
+    "archive_location": "s3://lakehouse-landing-{account_id}/dms/flightradar/flight_radar/aircraft_positions_archive/",
     "format": "parquet",
     "cdc_config": {
       "op_column": "Op",
@@ -496,32 +501,32 @@
           "comment": "Flight ID (FK → flights)"
         },
         "latitude": {
-          "type": "decimal",
+          "type": "double",
           "nullable": true,
           "comment": "Latitude"
         },
         "longitude": {
-          "type": "decimal",
+          "type": "double",
           "nullable": true,
           "comment": "Longitude"
         },
         "altitude_ft": {
-          "type": "int",
+          "type": "double",
           "nullable": true,
           "comment": "Altitude in feet"
         },
         "velocity_kts": {
-          "type": "decimal",
+          "type": "double",
           "nullable": true,
           "comment": "Velocity in knots"
         },
         "heading": {
-          "type": "decimal",
+          "type": "double",
           "nullable": true,
           "comment": "Heading in degrees"
         },
         "vertical_rate_fpm": {
-          "type": "decimal",
+          "type": "double",
           "nullable": true,
           "comment": "Vertical rate in ft/min"
         },
@@ -574,8 +579,9 @@
     "source": "countries",
     "order": 6,
     "filter": "",
-    "source_location": "s3://lakehouse-landing-{account_id}/dms/flightradar/flight_radar/countries/",
-    "cdc_source_location": "s3://lakehouse-landing-{account_id}/dms/flightradar/flight_radar/countries_cdc/",
+    "source_location": "s3://lakehouse-landing-{account_id}/dms/flightradar/flight_radar/countries/LOAD*.parquet",
+    "cdc_source_location": "s3://lakehouse-landing-{account_id}/dms/flightradar/flight_radar/countries/2*/*/*/*/*.parquet",
+    "archive_location": "s3://lakehouse-landing-{account_id}/dms/flightradar/flight_radar/countries_archive/",
     "format": "parquet",
     "cdc_config": {
       "op_column": "Op",
@@ -649,8 +655,9 @@
     "source": "aircraft_types",
     "order": 7,
     "filter": "",
-    "source_location": "s3://lakehouse-landing-{account_id}/dms/flightradar/flight_radar/aircraft_types/",
-    "cdc_source_location": "s3://lakehouse-landing-{account_id}/dms/flightradar/flight_radar/aircraft_types_cdc/",
+    "source_location": "s3://lakehouse-landing-{account_id}/dms/flightradar/flight_radar/aircraft_types/LOAD*.parquet",
+    "cdc_source_location": "s3://lakehouse-landing-{account_id}/dms/flightradar/flight_radar/aircraft_types/2*/*/*/*/*.parquet",
+    "archive_location": "s3://lakehouse-landing-{account_id}/dms/flightradar/flight_radar/aircraft_types_archive/",
     "format": "parquet",
     "cdc_config": {
       "op_column": "Op",
@@ -719,8 +726,9 @@
     "source": "routes",
     "order": 8,
     "filter": "",
-    "source_location": "s3://lakehouse-landing-{account_id}/dms/flightradar/flight_radar/routes/",
-    "cdc_source_location": "s3://lakehouse-landing-{account_id}/dms/flightradar/flight_radar/routes_cdc/",
+    "source_location": "s3://lakehouse-landing-{account_id}/dms/flightradar/flight_radar/routes/LOAD*.parquet",
+    "cdc_source_location": "s3://lakehouse-landing-{account_id}/dms/flightradar/flight_radar/routes/2*/*/*/*/*.parquet",
+    "archive_location": "s3://lakehouse-landing-{account_id}/dms/flightradar/flight_radar/routes_archive/",
     "format": "parquet",
     "cdc_config": {
       "op_column": "Op",

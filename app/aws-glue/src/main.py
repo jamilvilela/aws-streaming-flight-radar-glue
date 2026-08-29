@@ -137,9 +137,9 @@ def main() -> None:
 
     processor = Processor(spark)
 
-    # Generate test rejected records if requested
-    if args.generate_test_rejects:
-        _generate_test_rejected_records(spark, source_list, args.test_reject_reason)
+    # # Generate test rejected records if requested
+    # if args.generate_test_rejects:
+    #     _generate_test_rejected_records(spark, source_list, args.test_reject_reason)
 
     try:
         if args.mode == "batch":
@@ -204,6 +204,28 @@ def _generate_test_rejected_records(
         raise
 
 
+def _enable_streaming_debug_logs(spark: SparkSession) -> None:
+    """
+    Enable DEBUG logging (log4j2) for the streaming execution package.
+
+    This surfaces FileStreamSource offset-commit / cleanSource archive
+    activity ("Archiving file ...", "Failed to archive ...", commit log
+    errors) in the driver logs so archiving problems are diagnosable.
+    """
+    try:
+        jvm = spark._jvm
+        Configurator = jvm.org.apache.logging.log4j.core.config.Configurator
+        Level = jvm.org.apache.logging.log4j.Level
+        for pkg in (
+            "org.apache.spark.sql.execution.streaming",
+            "org.apache.spark.sql.execution.streaming.sources",
+        ):
+            Configurator.setLevel(pkg, Level.DEBUG)
+        logger.info("DEBUG logging enabled for org.apache.spark.sql.execution.streaming")
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Could not set streaming debug log level: %s", exc)
+
+
 def _run_streaming(
     spark: SparkSession,
     processor: Processor,
@@ -216,6 +238,8 @@ def _run_streaming(
     The job stays alive until all queries terminate.
     """
     from pyspark.sql import DataFrame
+
+    _enable_streaming_debug_logs(spark)
 
     queries = []
     for source in sources:

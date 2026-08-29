@@ -65,11 +65,12 @@ resource "aws_glue_job" "full_load_batch" {
 
   default_arguments = {
     # Job bookmarks & logging
-    "--job-bookmark-option"              = "job-bookmark-enable"
-    "--continuous-log-logGroup"          = "/aws-glue/jobs/${local.glue_full_load_job_name}"
-    "--enable-auto-scaling"              = "true"
-    "--enable-metrics"                   = "true"
-    "--enable-continuous-cloudwatch-log" = "true"
+    "--job-bookmark-option"                   = "job-bookmark-enable"
+    "--continuous-log-logGroup"               = "/aws-glue/jobs/${local.glue_full_load_job_name}"
+    "--enable-auto-scaling"                   = "true"
+    "--enable-metrics"                        = "true"
+    "--enable-continuous-cloudwatch-log"      = "true"
+    "--enable-observability-metrics"          = "true"
 
     # Job configuration
     "--config_s3_path"        = local.config_s3_path
@@ -117,11 +118,12 @@ resource "aws_glue_job" "streaming_minibatch" {
 
   default_arguments = {
     # Job bookmarks & logging
-    "--job-bookmark-option"              = "job-bookmark-enable"
-    "--continuous-log-logGroup"          = "/aws-glue/jobs/${local.glue_streaming_job_name}"
-    "--enable-auto-scaling"              = "true"
-    "--enable-metrics"                   = "true"
-    "--enable-continuous-cloudwatch-log" = "true"
+    "--job-bookmark-option"                   = "job-bookmark-enable"
+    "--continuous-log-logGroup"               = "/aws-glue/jobs/${local.glue_streaming_job_name}"
+    "--enable-auto-scaling"                   = "true"
+    "--enable-metrics"                        = "true"
+    "--enable-continuous-cloudwatch-log"      = "true"
+    "--enable-observability-metrics"          = "true"
 
     # Job configuration
     "--config_s3_path"        = local.config_s3_path
