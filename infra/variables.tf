@@ -39,8 +39,8 @@ variable "tables" {
     fr_countries          = string
     fr_aircraft_types     = string
     fr_routes             = string
-    etl_control            = string
-    data_quality           = string
+    etl_control           = string
+    data_quality          = string
   })
   default = {
     fr_aircraft           = "fr_aircraft"
@@ -51,8 +51,8 @@ variable "tables" {
     fr_countries          = "fr_countries"
     fr_aircraft_types     = "fr_aircraft_types"
     fr_routes             = "fr_routes"
-    etl_control            = "etl_control"
-    data_quality           = "data_quality_metrics"
+    etl_control           = "etl_control"
+    data_quality          = "data_quality_metrics"
   }
 }
 

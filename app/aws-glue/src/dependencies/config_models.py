@@ -1,5 +1,5 @@
 """
-config_models.py — Dataclasses for multi-table configuration.
+Dataclasses for multi-table configuration.
 
 Each source carries its own target definition, order, and CDC path,
 allowing one Glue job to process multiple tables sequentially (batch)
@@ -28,6 +28,7 @@ class SchemaField:
     comment: str = ""
 
     def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary representation."""
         return {"type": self.type, "nullable": self.nullable, "comment": self.comment}
 
 
@@ -40,6 +41,7 @@ class PartitionKey:
     source_column: Optional[str] = None
 
     def to_dict(self) -> Dict[str, str]:
+        """Convert to dictionary representation."""
         d = {"name": self.name, "type": self.type}
         if self.source_column:
             d["source_column"] = self.source_column
@@ -55,6 +57,7 @@ class CdcConfig:
     delete_strategy: str = "soft_delete"
 
     def to_dict(self) -> Dict[str, str]:
+        """Convert to dictionary representation."""
         return {
             "op_column": self.op_column,
             "timestamp_column": self.timestamp_column,
@@ -71,7 +74,7 @@ class TargetConfig:
     Glue Data Catalog reference, schema, partition keys and primary
     key used to write to the raw layer. The table itself is resolved
     through the Glue Data Catalog (database.table), never by S3 path.
-    Rejected records are written to the centralized tbl_rejected_records table.
+    Rejected records are written to the centralized rejected_records table.
     """
 
     catalog: Dict[str, str] = field(default_factory=dict)
@@ -85,13 +88,16 @@ class TargetConfig:
 
     @property
     def database(self) -> str:
+        """Return the catalog database name."""
         return self.catalog.get("database", "")
 
     @property
     def table(self) -> str:
+        """Return the catalog table name."""
         return self.catalog.get("table", "")
 
     def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary representation."""
         return {
             "catalog": dict(self.catalog),
             "format": self.format,
@@ -128,6 +134,7 @@ class SourceConfig:
     target: TargetConfig = field(default_factory=TargetConfig)
 
     def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary representation."""
         return {
             "source": self.source,
             "order": self.order,
@@ -156,7 +163,6 @@ class Config:
     """
 
     _sources: List[SourceConfig] = field(default_factory=list)
-
 
     @property
     def source(self) -> SourceConfig:
@@ -188,7 +194,6 @@ class Config:
                 return s
         return None
 
-
     @classmethod
     def from_dicts(cls, data: Any) -> "Config":
         """
@@ -196,13 +201,26 @@ class Config:
 
         Accepts a list of source dicts, a single source dict, or a dict
         with a ``sources`` key.
+
+        Args:
+            data: Parsed JSON data.
+
+        Returns:
+            Config instance with parsed sources.
         """
         sources = cls._parse_sources(data)
         return cls(_sources=sources)
 
     @classmethod
     def from_file(cls, path: str) -> "Config":
-        """Load configuration from a single local JSON file."""
+        """Load configuration from a single local JSON file.
+
+        Args:
+            path: Local file path to config.json.
+
+        Returns:
+            Config instance with parsed sources.
+        """
         logger.info("Loading config from file: %s", path)
         with open(path, "rt", encoding="utf-8") as f:
             data = json.load(f)
@@ -210,11 +228,13 @@ class Config:
 
     @classmethod
     def from_s3(cls, s3_path: str) -> "Config":
-        """
-        Load configuration from a single S3 URI using AwsHelper.
+        """Load configuration from a single S3 URI using AwsHelper.
 
         Args:
             s3_path: S3 URI like ``s3://bucket/key/config.json``.
+
+        Returns:
+            Config instance with parsed sources.
         """
         logger.info("Loading config from S3: %s", s3_path)
         from .aws_helper import AwsHelper
@@ -222,7 +242,6 @@ class Config:
         aws_helper = AwsHelper()
         data = aws_helper.get_json_from_s3(s3_path)
         return cls.from_dicts(data)
-
 
     @staticmethod
     def _parse_sources(data: Any) -> List[SourceConfig]:
@@ -233,6 +252,12 @@ class Config:
         - A list of dicts (standard format)
         - A single dict
         - A dict with 'sources' key
+
+        Args:
+            data: Raw parsed JSON data.
+
+        Returns:
+            List of SourceConfig instances.
         """
         items: List[dict] = []
 

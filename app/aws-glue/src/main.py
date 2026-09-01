@@ -1,10 +1,10 @@
 """
-main.py — Entry point for the Glue Job (multi-table batch + streaming).
+Entry point for the Glue Job (multi-table batch + streaming).
 
 Reads a single config.json from S3 containing all table definitions
 (sources + targets), then runs in either:
-- **Batch mode**: processes all tables sequentially in ``order``.
-- **Streaming mode**: starts one streaming query per table concurrently.
+- Batch mode: processes all tables sequentially in ``order``.
+- Streaming mode: starts one streaming query per table concurrently.
 
 No Glue-specific APIs are used.
 """
@@ -36,6 +36,12 @@ def _parse_args(argv: Optional[list[str]] = None) -> argparse.Namespace:
     Uses ``parse_known_args`` because AWS Glue (>= 4.0) injects extra
     arguments into the script (e.g. ``--internal-lib-urls``) that are not
     declared here; rejecting them would fail the job at startup.
+
+    Args:
+        argv: Optional argument list for testing.
+
+    Returns:
+        Parsed arguments namespace.
     """
     from src.dependencies.test_rejected_records import add_test_rejected_records_arg
 
@@ -59,14 +65,13 @@ def _parse_args(argv: Optional[list[str]] = None) -> argparse.Namespace:
 
 
 def _init_spark() -> SparkSession:
-    """
-    Create and configure a SparkSession with Delta support.
+    """Create and configure a SparkSession with Delta support.
 
-    IMPORTANT: In AWS Glue, the SparkSession should be configured primarily
+    In AWS Glue, the SparkSession should be configured primarily
     via the job's ``--conf`` parameters (applied by the Glue runtime BEFORE
-    this script runs). This function should only set configs that are NOT
-    provided via job parameters, or use ``getOrCreate()`` to attach to the
-    existing session created by the runtime.
+    this script runs). This function uses ``getOrCreate()`` to attach to the
+    existing session created by the runtime (which already has the ``--conf``
+    applied), rather than creating a new session that would override those configs.
 
     The ``--datalake-formats=delta`` job parameter adds the Delta JAR to the
     classpath. The Delta extensions and catalog MUST be set via ``--conf``:
@@ -75,13 +80,12 @@ def _init_spark() -> SparkSession:
       --conf spark.sql.catalogImplementation=hive
       --conf spark.hadoop.hive.metastore.client.factory.class=com.amazonaws.glue.catalog.metastore.AWSGlueDataCatalogHiveClientFactory
 
-    This function uses ``getOrCreate()`` to attach to the session created by
-    the Glue runtime (which already has the ``--conf`` applied), rather than
-    creating a new session that would override those configs.
+    Returns:
+        Configured SparkSession.
     """
     spark = SparkSession.builder.appName("glue-flight-radar").getOrCreate()
 
-    # Diagnostic: log the Delta-related session configs so bootstrap issues
+    # Diagnostic: log Delta-related session configs so bootstrap issues
     # (e.g. missing DeltaSparkSessionExtension) are visible in CloudWatch.
     for key in (
         "spark.sql.extensions",
@@ -137,10 +141,6 @@ def main() -> None:
 
     processor = Processor(spark)
 
-    # # Generate test rejected records if requested
-    # if args.generate_test_rejects:
-    #     _generate_test_rejected_records(spark, source_list, args.test_reject_reason)
-
     try:
         if args.mode == "batch":
             _run_batch(spark, processor, source_list)
@@ -161,10 +161,15 @@ def _generate_test_rejected_records(
     reject_reason: str,
 ) -> None:
     """Generate test rejected records for all tables via the full DataQuality pipeline.
-    
+
     This generates test records and passes them through the full processor pipeline
     (DataQuality validation -> RejectedRecords -> Writer), so they exercise the
     complete validation pipeline including null_check, type_cast, enum_check, etc.
+
+    Args:
+        spark: Active SparkSession.
+        sources: List of source configurations.
+        reject_reason: Reason to use for test rejections.
     """
     logger.info("Generating test rejected records via DataQuality pipeline...")
     from src.dependencies.test_rejected_records import TestRejectedRecordsGenerator
@@ -179,18 +184,18 @@ def _generate_test_rejected_records(
         for source in sources:
             target = source.target
             logger.info("Processing test records for %s via DataQuality pipeline...", source.source)
-            
+
             # Generate test DataFrame
             test_df = generator.create_test_dataframe(source)
             if test_df.isEmpty():
                 logger.info("  No test records for %s", source.source)
                 continue
-            
+
             execution_id = f"{execution_id_base}-{source.source}"
-            
+
             # Run through full processor pipeline (DataQuality -> RejectedRecords -> Writer)
             processor.run(source, target, mode="batch", dataframe=test_df)
-            
+
             count = test_df.count()
             total_records += count
             logger.info("  %s: %d test records processed via DataQuality pipeline", source.source, count)
@@ -205,8 +210,7 @@ def _generate_test_rejected_records(
 
 
 def _enable_streaming_debug_logs(spark: SparkSession) -> None:
-    """
-    Enable DEBUG logging (log4j2) for the streaming execution package.
+    """Enable DEBUG logging (log4j2) for the streaming execution package.
 
     This surfaces FileStreamSource offset-commit / cleanSource archive
     activity ("Archiving file ...", "Failed to archive ...", commit log
@@ -231,11 +235,15 @@ def _run_streaming(
     processor: Processor,
     sources: List[SourceConfig],
 ) -> None:
-    """
-    Start one streaming query per table, all running concurrently.
+    """Start one streaming query per table, all running concurrently.
 
     Each table uses its own checkpoint location and CDC source path.
     The job stays alive until all queries terminate.
+
+    Args:
+        spark: Active SparkSession.
+        processor: Processor instance for pipeline execution.
+        sources: List of source configurations sorted by order.
     """
     from pyspark.sql import DataFrame
 
@@ -266,7 +274,7 @@ def _run_streaming(
             )
             try:
                 valid_df, rejects_df = processor._data_quality.validate(df, tgt, src)
-                
+
                 # Write rejects to centralized table
                 if not rejects_df.isEmpty():
                     reject_rule = "validation_failed"
@@ -287,7 +295,7 @@ def _run_streaming(
                         reject_rule=reject_rule,
                         reject_reason=reject_reason,
                     )
-                
+
                 processor._writer.write(valid_df, tgt, src)
                 logger.info("[%s] batch %d done", src.source, batch_id)
             except Exception as exc:
@@ -338,13 +346,17 @@ def _run_batch(
     processor: Processor,
     sources: List[SourceConfig],
 ) -> None:
-    """
-    Process all tables sequentially in batch mode.
+    """Process all tables sequentially in batch mode.
 
     Each table is read, validated, written, and registered before
     moving to the next. Processing order follows the ``order`` field
     in config.json. On the first failure the job stops (fail-fast) so
     the Glue run is marked FAILED instead of silently continuing.
+
+    Args:
+        spark: Active SparkSession.
+        processor: Processor instance for pipeline execution.
+        sources: List of source configurations sorted by order.
     """
     total = len(sources)
     logger.info("Running batch mode — %d table(s) to process", total)

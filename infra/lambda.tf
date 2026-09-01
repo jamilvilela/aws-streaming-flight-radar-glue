@@ -2,8 +2,9 @@
 # Lambda — Function that starts the Glue workflow (batch then streaming)
 #===============================================================================
 
-# ── Lambda Function — Start Glue Full-Load Job ──────────────────────────────
-
+# Lambda Function — Start Glue Full-Load Job
+# Zips the Python handler and deploys as a Lambda function.
+# Environment variables configure the workflow name, DMS replication ARN, and lock table.
 data "archive_file" "lambda_glue_starter" {
   type        = "zip"
   source_file = "${path.module}/../app/aws-lambda/start_workflow/start_glue_job.py"
@@ -32,10 +33,9 @@ resource "aws_lambda_function" "glue_starter" {
   })
 }
 
-# ── CloudWatch Log Group — Lambda ────────────────────────────────────────────
+# CloudWatch Log Group — Lambda
 # Pre-create the Lambda log group so log-based monitors do not fail with
 # ResourceNotFoundException before the function is first invoked.
-
 resource "aws_cloudwatch_log_group" "glue_starter" {
   name              = "/aws/lambda/${local.glue_full_load_job_name}-starter"
   retention_in_days = 14
@@ -45,8 +45,8 @@ resource "aws_cloudwatch_log_group" "glue_starter" {
   })
 }
 
-# ── EventBridge Permission — Invoke Lambda ───────────────────────────────────
-
+# EventBridge Permission — Invoke Lambda
+# Allows EventBridge to invoke the Lambda function.
 resource "aws_lambda_permission" "eventbridge_invoke_glue_starter" {
   statement_id  = "AllowEventBridgeInvoke"
   action        = "lambda:InvokeFunction"

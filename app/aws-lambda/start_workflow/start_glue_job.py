@@ -34,7 +34,11 @@ _FULL_LOAD_DONE = {
 
 
 def _find_replication() -> Optional[dict]:
-    """Return the DMS Serverless replication whose full-load phase is watched."""
+    """Return the DMS Serverless replication whose full-load phase is watched.
+
+    Returns:
+        Replication dict if found, None otherwise.
+    """
     if DMS_CONFIG_ARN:
         resp = dms.describe_replications(
             Filters=[{"Name": "replication-config-arn", "Values": [DMS_CONFIG_ARN]}]
@@ -51,7 +55,14 @@ def _find_replication() -> Optional[dict]:
 
 
 def _full_load_complete(replication: dict) -> bool:
-    """True when the DMS Serverless replication finished its full-load phase."""
+    """Check if the DMS Serverless replication finished its full-load phase.
+
+    Args:
+        replication: Replication dict from describe_replications.
+
+    Returns:
+        True if full load is complete (100% progress, 0 tables loading).
+    """
     stats = replication.get("ReplicationStats") or {}
     progress = stats.get("FullLoadProgressPercent")
     tables_loading = stats.get("TablesLoading", 0)
@@ -59,7 +70,14 @@ def _full_load_complete(replication: dict) -> bool:
 
 
 def _acquire_lock(config_arn: str) -> bool:
-    """Atomically claim the workflow start for this replication. True if claimed."""
+    """Atomically claim the workflow start for this replication.
+
+    Args:
+        config_arn: DMS replication config ARN.
+
+    Returns:
+        True if lock acquired, False if already held.
+    """
     table = boto3.resource("dynamodb").Table(LOCK_TABLE)
     try:
         table.put_item(
@@ -74,7 +92,15 @@ def _acquire_lock(config_arn: str) -> bool:
 
 
 def lambda_handler(event: dict, context: object) -> dict:
-    """Start the Glue workflow once, when the DMS full-load phase completes."""
+    """Start the Glue workflow once, when the DMS full-load phase completes.
+
+    Args:
+        event: EventBridge event.
+        context: Lambda context.
+
+    Returns:
+        Response dict with statusCode and body.
+    """
     replication = _find_replication()
     if replication is None:
         print("No DMS Serverless replication found — skipping")

@@ -1,9 +1,10 @@
 #===============================================================================
-# Glue — Security Configuration, Connection, Jobs and Trigger
+# Glue — Security Configuration, Connection, Jobs and Triggers
 #===============================================================================
 
-# ── Glue Security Configuration ──────────────────────────────────────────────
-
+# Glue Security Configuration
+# Configures encryption for CloudWatch logs (SSE-KMS), job bookmarks (CSE-KMS),
+# and S3 data (SSE-KMS) using the Glue KMS key.
 resource "aws_glue_security_configuration" "glue" {
   name = "${var.glue_job_name}-security-config"
 
@@ -25,16 +26,14 @@ resource "aws_glue_security_configuration" "glue" {
   }
 }
 
-# ── Glue Connection (VPC) ────────────────────────────────────────────────────
-
+# Glue VPC Connection (NETWORK type)
+# Provides VPC access for Glue jobs. Uses a single private subnet and default
+# security group. AZ is derived from the subnet to avoid mismatch errors.
 resource "aws_glue_connection" "vpc" {
   name            = "${var.glue_job_name}-vpc"
   connection_type = "NETWORK"
 
   physical_connection_requirements {
-    # AZ sempre derivada da própria subnet escolhida — evita o erro
-    # "Availability Zone <az> does not correspond to subnet" quando a AZ e o
-    # subnet_id são resolvidos de fontes/ordenações diferentes.
     availability_zone      = data.aws_subnet.glue.availability_zone
     subnet_id              = data.aws_subnet.glue.id
     security_group_id_list = [data.aws_security_group.default.id]
@@ -45,8 +44,9 @@ resource "aws_glue_connection" "vpc" {
   })
 }
 
-# ── Glue Job — Full-Load Batch ──────────────────────────────────────────────
-
+# Glue Job — Full-Load Batch
+# Processes all tables sequentially (--mode=batch). Uses Glue 5.0, Python 3.9,
+# FLEX execution class for cost optimization. Delta Lake support via --datalake-formats.
 resource "aws_glue_job" "full_load_batch" {
   name              = local.glue_full_load_job_name
   role_arn          = aws_iam_role.glue_job.arn
@@ -65,12 +65,12 @@ resource "aws_glue_job" "full_load_batch" {
 
   default_arguments = {
     # Job bookmarks & logging
-    "--job-bookmark-option"                   = "job-bookmark-enable"
-    "--continuous-log-logGroup"               = "/aws-glue/jobs/${local.glue_full_load_job_name}"
-    "--enable-auto-scaling"                   = "true"
-    "--enable-metrics"                        = "true"
-    "--enable-continuous-cloudwatch-log"      = "true"
-    "--enable-observability-metrics"          = "true"
+    "--job-bookmark-option"              = "job-bookmark-enable"
+    "--continuous-log-logGroup"          = "/aws-glue/jobs/${local.glue_full_load_job_name}"
+    "--enable-auto-scaling"              = "true"
+    "--enable-metrics"                   = "true"
+    "--enable-continuous-cloudwatch-log" = "true"
+    "--enable-observability-metrics"     = "true"
 
     # Job configuration
     "--config_s3_path"        = local.config_s3_path
@@ -79,7 +79,7 @@ resource "aws_glue_job" "full_load_batch" {
     "--mode"                  = "batch"
     "--generate-test-rejects" = "true"
 
-    # Delta Lake support (writer.py importa delta.tables)
+    # Delta Lake support
     "--datalake-formats" = "delta"
 
     # Spark UI
@@ -90,7 +90,7 @@ resource "aws_glue_job" "full_load_batch" {
     "--encryption-type" = "sse-s3-kms"
   }
 
-  # Associate Glue connection if provided
+  # Associate Glue connection
   connections = length(var.glue_connections) > 0 ? var.glue_connections : [aws_glue_connection.vpc.name]
 
   tags = merge(local.common_tags, {
@@ -98,8 +98,9 @@ resource "aws_glue_job" "full_load_batch" {
   })
 }
 
-# ── Glue Job — Streaming CDC ────────────────────────────────────────────────
-
+# Glue Job — Streaming CDC
+# Runs continuous streaming with one concurrent query per table (--mode=streaming).
+# Uses Glue 5.0, Python 3.9, FLEX execution class. Delta Lake support enabled.
 resource "aws_glue_job" "streaming_minibatch" {
   name              = local.glue_streaming_job_name
   role_arn          = aws_iam_role.glue_job.arn
@@ -118,12 +119,12 @@ resource "aws_glue_job" "streaming_minibatch" {
 
   default_arguments = {
     # Job bookmarks & logging
-    "--job-bookmark-option"                   = "job-bookmark-enable"
-    "--continuous-log-logGroup"               = "/aws-glue/jobs/${local.glue_streaming_job_name}"
-    "--enable-auto-scaling"                   = "true"
-    "--enable-metrics"                        = "true"
-    "--enable-continuous-cloudwatch-log"      = "true"
-    "--enable-observability-metrics"          = "true"
+    "--job-bookmark-option"              = "job-bookmark-enable"
+    "--continuous-log-logGroup"          = "/aws-glue/jobs/${local.glue_streaming_job_name}"
+    "--enable-auto-scaling"              = "true"
+    "--enable-metrics"                   = "true"
+    "--enable-continuous-cloudwatch-log" = "true"
+    "--enable-observability-metrics"     = "true"
 
     # Job configuration
     "--config_s3_path"        = local.config_s3_path
@@ -132,7 +133,7 @@ resource "aws_glue_job" "streaming_minibatch" {
     "--mode"                  = "streaming"
     "--generate-test-rejects" = "true"
 
-    # Delta Lake support (writer.py importa delta.tables)
+    # Delta Lake support
     "--datalake-formats" = "delta"
 
     # Spark UI
@@ -143,7 +144,7 @@ resource "aws_glue_job" "streaming_minibatch" {
     "--encryption-type" = "sse-s3-kms"
   }
 
-  # Associate Glue connection if provided
+  # Associate Glue connection
   connections = length(var.glue_connections) > 0 ? var.glue_connections : [aws_glue_connection.vpc.name]
 
   tags = merge(local.common_tags, {
@@ -151,15 +152,11 @@ resource "aws_glue_job" "streaming_minibatch" {
   })
 }
 
-# ── Glue Workflow — Full Load → Streaming (native sequencing) ────────────────
-#
-# A Lambda dispara o workflow via StartWorkflowRun. O workflow usa um
-# trigger ON_DEMAND para iniciar o batch job e um trigger CONDITIONAL
-# (nativo do Glue) para iniciar o streaming apenas quando o batch
-# SUCCEEDED. Como o batch é iniciado por um trigger do mesmo workflow,
-# o trigger condicional dispara normalmente — sem polling na Lambda e
-# sem execução simultânea dos dois jobs.
-
+# Glue Workflow — Full Load → Streaming (native sequencing)
+# Lambda starts the workflow via StartWorkflowRun. The workflow uses an
+# ON_DEMAND trigger to start the batch job and a CONDITIONAL trigger
+# (native Glue) to start streaming only after batch SUCCEEDED.
+# This avoids polling in Lambda and prevents concurrent job execution.
 resource "aws_glue_workflow" "dms_full_load" {
   name = "${local.glue_full_load_job_name}-workflow"
 
@@ -168,9 +165,8 @@ resource "aws_glue_workflow" "dms_full_load" {
   })
 }
 
-# ── On-demand Trigger — Start Full-Load Batch ────────────────────────────────
+# On-demand Trigger — Start Full-Load Batch
 # Fires when the workflow run starts (via StartWorkflowRun).
-
 resource "aws_glue_trigger" "start_full_load" {
   name          = "${local.glue_full_load_job_name}-start-full-load"
   type          = "ON_DEMAND"
@@ -185,9 +181,8 @@ resource "aws_glue_trigger" "start_full_load" {
   })
 }
 
-# ── Conditional Trigger — Start Streaming After Full Load ────────────────────
+# Conditional Trigger — Start Streaming After Full Load
 # Fires when the full-load batch job succeeds within the workflow.
-
 resource "aws_glue_trigger" "start_streaming_after_full_load" {
   name          = "${local.glue_full_load_job_name}-start-streaming"
   type          = "CONDITIONAL"

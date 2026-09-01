@@ -36,6 +36,11 @@ class EtlControl:
     TABLE = "etl_control"
 
     def __init__(self, spark: SparkSession):
+        """Initialize the EtlControl.
+
+        Args:
+            spark: Active SparkSession.
+        """
         self._spark = spark
         self._aws_helper = AwsHelper()
 
@@ -51,8 +56,7 @@ class EtlControl:
         elapsed_seconds: float,
         error_message: Optional[str] = None,
     ) -> None:
-        """
-        Append an execution record to the etl_control table.
+        """Append an execution record to the etl_control table.
 
         Args:
             execution_id: Unique execution UUID.
@@ -67,7 +71,7 @@ class EtlControl:
         """
         now = datetime.utcnow()
         partition_value = self._build_partition_value(target)
-        
+
         data = [(
             execution_id,
             "glue-flight-radar",
@@ -111,10 +115,16 @@ class EtlControl:
         except Exception as exc:
             logger.warning("Failed to register execution in etl_control: %s", exc)
 
-
     @staticmethod
     def _build_partition_value(target: TargetConfig) -> str:
-        """Build a partition description string, e.g. 'event_date='."""
+        """Build a partition description string, e.g. 'event_date='.
+
+        Args:
+            target: TargetConfig with partition_keys.
+
+        Returns:
+            Partition description string.
+        """
         if not target.partition_keys:
             return ""
         return "/".join(f"{pk.name}=" for pk in target.partition_keys)

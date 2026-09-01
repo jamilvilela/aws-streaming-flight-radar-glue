@@ -35,6 +35,11 @@ class QualityMetrics:
     TABLE = "data_quality_metrics"
 
     def __init__(self, spark: SparkSession):
+        """Initialize the QualityMetrics.
+
+        Args:
+            spark: Active SparkSession.
+        """
         self._spark = spark
         self._aws_helper = AwsHelper()
 
@@ -46,8 +51,7 @@ class QualityMetrics:
         records_written: int,
         records_rejected: int,
     ) -> None:
-        """
-        Append quality metrics to the data_quality_metrics table.
+        """Append quality metrics to the data_quality_metrics table.
 
         Args:
             target: TargetConfig for database/table names and partition keys.
@@ -104,10 +108,16 @@ class QualityMetrics:
         except Exception as exc:
             logger.warning("Failed to save quality metrics: %s", exc)
 
-
     @staticmethod
     def _build_partition_value(target: TargetConfig) -> str:
-        """Build a partition description string, e.g. 'event_date='."""
+        """Build a partition description string, e.g. 'event_date='.
+
+        Args:
+            target: TargetConfig with partition_keys.
+
+        Returns:
+            Partition description string.
+        """
         if not target.partition_keys:
             return ""
         return "/".join(f"{pk.name}=" for pk in target.partition_keys)

@@ -46,12 +46,16 @@ class Writer:
     """
 
     def __init__(self, spark: SparkSession):
+        """Initialize the Writer.
+
+        Args:
+            spark: Active SparkSession.
+        """
         self._spark = spark
         self._aws_helper = AwsHelper()
 
     def write(self, df: DataFrame, target: TargetConfig, source: Optional[SourceConfig] = None) -> None:
-        """
-        Write a validated DataFrame to the Delta table resolved through the
+        """Write a validated DataFrame to the Delta table resolved through the
         Glue Data Catalog (``target.database.target.table``).
 
         Generates ``cod_unique`` from the primary key columns (via
@@ -136,7 +140,15 @@ class Writer:
 
     @staticmethod
     def _select_and_cast_target_schema(df: DataFrame, target: TargetConfig) -> DataFrame:
-        """Select target columns and cast each one to its configured type."""
+        """Select target columns and cast each one to its configured type.
+
+        Args:
+            df: Input DataFrame.
+            target: TargetConfig with schema and partition_keys.
+
+        Returns:
+            DataFrame with selected columns cast to target types.
+        """
         if not target.schema:
             logger.warning("Target schema is empty for %s; preserving DataFrame columns", target.table)
             return df
@@ -166,13 +178,18 @@ class Writer:
         return df.select(*expressions)
 
     def _is_delta_table(self, table_name: str) -> bool:
-        """
-        Check whether the catalog table is already a physical Delta table.
+        """Check whether the catalog table is already a physical Delta table.
 
         The Glue Catalog table is registered upfront (EXTERNAL_TABLE), but
         the Delta transaction log (``_delta_log``) only exists after the
         first write. ``DeltaTable.forName`` fails until the table is
         recognized as Delta, which is used as the bootstrap signal.
+
+        Args:
+            table_name: Fully qualified table name (database.table).
+
+        Returns:
+            True if the table exists as a Delta table, False otherwise.
         """
         try:
             DeltaTable.forName(self._spark, table_name)
@@ -182,14 +199,20 @@ class Writer:
 
     @staticmethod
     def _map_cdc_columns(df: DataFrame, source: Optional[SourceConfig]) -> DataFrame:
-        """
-        Rename CDC metadata columns to the physical catalog column names.
+        """Rename CDC metadata columns to the physical catalog column names.
 
         CDC files carry short names (e.g. ``Op`` / ``dms_timestamp``)
         configured via ``source.cdc_config``, while the Glue Catalog tables
         in the data lakehouse are defined with ``cdc_operation`` /
         ``cdc_timestamp``. Renaming here keeps the Delta table schema
         aligned with the catalog definition.
+
+        Args:
+            df: Input DataFrame.
+            source: Optional SourceConfig with cdc_config.
+
+        Returns:
+            DataFrame with renamed CDC columns.
         """
         if not (source and source.cdc_config):
             return df
@@ -211,13 +234,17 @@ class Writer:
         partition_cols: list,
         table_location: str,
     ) -> None:
-        """
-        Create the physical Delta table registered in the Glue Data Catalog.
+        """Create the physical Delta table registered in the Glue Data Catalog.
 
         The Glue Catalog table is registered upfront (EXTERNAL_TABLE), but the
         Delta transaction log (``_delta_log``) only exists after the first
         write. Write directly to the catalog location with an explicit Delta
         format so the transaction log is created without updating the catalog.
+
+        Args:
+            df: DataFrame to write as the initial table content.
+            partition_cols: List of partition column names.
+            table_location: S3 location of the table in the catalog.
         """
         writer = df.write.format("delta").mode("overwrite")
         if partition_cols:
@@ -226,11 +253,17 @@ class Writer:
 
     @staticmethod
     def _generate_cod_unique(df: DataFrame, target: TargetConfig) -> DataFrame:
-        """
-        Generate the ``cod_unique`` column by concatenating primary key columns.
+        """Generate the ``cod_unique`` column by concatenating primary key columns.
 
         Uses ``cod_unique_expr`` from TargetConfig if available, otherwise
         concatenates primary key columns with "_" separator.
+
+        Args:
+            df: Input DataFrame.
+            target: TargetConfig with primary_key and cod_unique_expr.
+
+        Returns:
+            DataFrame with cod_unique column added.
         """
         if "cod_unique" in df.columns:
             return df
@@ -256,12 +289,19 @@ class Writer:
         target: TargetConfig,
         source: Optional[SourceConfig] = None,
     ) -> DataFrame:
-        """
-        Add partition columns required by the target table.
+        """Add partition columns required by the target table.
 
         Each partition key can declare a ``source_column`` to derive its
         value from (e.g. ``event_date`` from ``scheduled_departure``).
         Without one, ``event_date`` is derived from the CDC timestamp column.
+
+        Args:
+            df: Input DataFrame.
+            target: TargetConfig with partition_keys.
+            source: Optional SourceConfig with cdc_config for timestamp column.
+
+        Returns:
+            DataFrame with partition columns added.
         """
         needed = [pk for pk in target.partition_keys if pk.name not in df.columns]
         if not needed:

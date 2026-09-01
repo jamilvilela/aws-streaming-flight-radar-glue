@@ -5,7 +5,6 @@
 # the Glue workflow is started exactly once per DMS full load: the Lambda
 # inserts a row keyed by the replication task ARN with a conditional
 # attribute_not_exists PutItem. Once present, subsequent polls skip.
-
 resource "aws_dynamodb_table" "workflow_lock" {
   name         = "glue-flight-radar-workflow-lock"
   billing_mode = "PAY_PER_REQUEST"

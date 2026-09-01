@@ -2,11 +2,9 @@
 # IAM — Roles and Policies
 #===============================================================================
 
-# ── Glue Job Role — Dedicated ────────────────────────────────────────────────
+# Glue Job Role — Dedicated
 # Dedicated role for the Glue jobs (batch + streaming) and interactive
-# sessions. Owned by this module — unlike role-datalake-analytics, which is
-# managed by the data-lake repository. Trusted by the Glue service.
-
+# sessions. Owned by this module. Trusted by the Glue service.
 resource "aws_iam_role" "glue_job" {
   name = var.glue_job_role_name
 
@@ -28,11 +26,10 @@ resource "aws_iam_role" "glue_job" {
   })
 }
 
-# ── Glue Job Role — Catalog & Connections ─────────────────────────────────────
+# Glue Job Role — Catalog & Connections
 # The dedicated Glue role runs the jobs, which use a VPC NETWORK connection.
 # Glue must be able to read connection metadata from the Data Catalog
 # (glue:GetConnection/GetConnections).
-
 resource "aws_iam_role_policy" "glue_catalog_connections" {
   name = "glue-catalog-connections"
   role = aws_iam_role.glue_job.name
@@ -55,11 +52,10 @@ resource "aws_iam_role_policy" "glue_catalog_connections" {
   })
 }
 
-# ── Glue Job Role — Data Catalog tables ───────────────────────────────────────
+# Glue Job Role — Data Catalog Tables
 # Spark resolves existing Delta tables through the Glue Catalog. Data writes
 # go to the registered table locations; this role must not create or mutate
 # Glue Catalog metadata.
-
 resource "aws_iam_role_policy" "glue_catalog_tables" {
   name = "glue-catalog-tables"
   role = aws_iam_role.glue_job.name
@@ -82,7 +78,7 @@ resource "aws_iam_role_policy" "glue_catalog_tables" {
           "glue:BatchGetPartition",
           "glue:CreatePartition",
           "glue:UpdatePartition",
-          ]
+        ]
         Resource = [
           "arn:aws:glue:${var.region}:${local.account_id}:catalog",
           "arn:aws:glue:${var.region}:${local.account_id}:database/*",
@@ -94,11 +90,10 @@ resource "aws_iam_role_policy" "glue_catalog_tables" {
   })
 }
 
-# ── Glue Job Role — S3, KMS and CloudWatch Logs ──────────────────────────────
+# Glue Job Role — S3, KMS and CloudWatch Logs
 # The Glue jobs read full-load/CDC parquet from landing, write Delta to raw,
 # and read scripts/config/dependencies from workspace. Writes use SSE-KMS
 # (glue KMS key) and job logs go to CloudWatch.
-
 resource "aws_iam_role_policy" "glue_data_access" {
   name = "glue-data-access"
   role = aws_iam_role.glue_job.name
@@ -178,11 +173,10 @@ resource "aws_iam_role_policy" "glue_data_access" {
   })
 }
 
-# ── Glue Job Role — VPC Networking (ENI management) ──────────────────────────
+# Glue Job Role — VPC Networking (ENI management)
 # The Glue jobs run inside a VPC (NETWORK connection). Glue must be able to
 # describe the VPC/subnets/security groups and create/delete elastic network
 # interfaces (ENIs) for the job's Spark executors.
-
 resource "aws_iam_role_policy" "glue_vpc_networking" {
   name = "glue-vpc-networking"
   role = aws_iam_role.glue_job.name
@@ -208,7 +202,7 @@ resource "aws_iam_role_policy" "glue_vpc_networking" {
         Resource = ["*"]
       },
       {
-        # Glue taggea as ENIs que cria ao iniciar os workers no VPC.
+        # Glue tags ENIs created when starting workers in the VPC.
         Effect = "Allow"
         Action = [
           "ec2:CreateTags",
@@ -225,11 +219,10 @@ resource "aws_iam_role_policy" "glue_vpc_networking" {
   })
 }
 
-# ── Glue Interactive Sessions — Session role permissions ─────────────────────
+# Glue Interactive Sessions — Session role permissions
 # The role also executes AWS Glue interactive sessions (Jupyter notebooks that
 # test this pipeline). It needs the same interactive-sessions actions plus the
 # ability to tag sessions (%%tags) and write session logs to CloudWatch.
-
 resource "aws_iam_role_policy" "glue_interactive_sessions" {
   name = "glue-interactive-sessions"
   role = aws_iam_role.glue_job.name
@@ -281,11 +274,10 @@ resource "aws_iam_role_policy" "glue_interactive_sessions" {
   })
 }
 
-# ── Interactive Sessions — Caller PassRole ───────────────────────────────────
+# Interactive Sessions — Caller PassRole
 # The identity that starts a notebook (members of the datalake-admins group)
 # must be allowed to pass the dedicated Glue role when creating an interactive
 # session (glue:CreateSession requires iam:PassRole on the role).
-
 resource "aws_iam_group_policy" "interactive_sessions_passrole" {
   name  = "glue-interactive-sessions-passrole"
   group = "datalake-admins"
@@ -306,9 +298,8 @@ resource "aws_iam_group_policy" "interactive_sessions_passrole" {
   })
 }
 
-# ── Lambda IAM Role ──────────────────────────────────────────────────────────
+# Lambda IAM Role
 # Role for the Lambda function that starts the Glue full-load batch job.
-
 resource "aws_iam_role" "lambda_glue_starter" {
   name = "role-lambda-start-${local.glue_full_load_job_name}"
 

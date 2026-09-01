@@ -42,6 +42,11 @@ class RejectedRecords:
     JSON_COLUMN = "rejected_record_json"
 
     def __init__(self, spark: SparkSession):
+        """Initialize the RejectedRecords writer.
+
+        Args:
+            spark: Active SparkSession.
+        """
         self._spark = spark
         self._aws_helper = AwsHelper()
 
@@ -54,8 +59,7 @@ class RejectedRecords:
         reject_rule: str,
         reject_reason: str,
     ) -> None:
-        """
-        Write rejected records to the centralized rejected records table.
+        """Write rejected records to the centralized rejected records table.
 
         Args:
             rejected_df: DataFrame with rejected records (original schema)
@@ -114,7 +118,7 @@ class RejectedRecords:
         try:
             # Get table location from Glue Catalog
             table_location = self._get_table_location()
-            
+
             # Append-only write to S3 with partitionBy
             final_df.write.mode("append").format("parquet").option("compression", "snappy").partitionBy("reference_date").save(table_location)
             logger.info(
@@ -140,15 +144,24 @@ class RejectedRecords:
             ) from exc
 
     def _to_json_column(self, df: DataFrame) -> DataFrame:
-        """
-        Convert all columns of a DataFrame to a single JSON string column.
+        """Convert all columns of a DataFrame to a single JSON string column.
 
         Uses to_json(struct(*)) to create a JSON object with column names as keys.
+
+        Args:
+            df: Input DataFrame.
+
+        Returns:
+            DataFrame with single JSON column.
         """
         json_expr = F.to_json(F.struct(*df.columns)).alias(self.JSON_COLUMN)
         return df.withColumn(self.JSON_COLUMN, json_expr).drop(*df.columns)
 
     def _get_table_location(self) -> str:
-        """Get S3 location of the rejected records table from Glue Catalog."""
+        """Get S3 location of the rejected records table from Glue Catalog.
+
+        Returns:
+            S3 location string.
+        """
         database, table = self.TABLE_NAME.split(".", 1)
         return self._aws_helper.get_table_location(database, table)

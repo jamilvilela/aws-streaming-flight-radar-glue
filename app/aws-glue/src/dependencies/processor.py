@@ -37,7 +37,7 @@ class Processor:
     Orchestrates the end-to-end data processing pipeline.
 
     Pipeline steps:
-    1. Read raw data via Reader (streaming)
+    1. Read raw data via Reader (streaming or batch)
     2. Validate & cleanse via DataQuality
     3. Write rejects via RejectedRecords (centralized table)
     4. Write valid data via Writer
@@ -46,6 +46,11 @@ class Processor:
     """
 
     def __init__(self, spark: SparkSession):
+        """Initialize the Processor with all pipeline components.
+
+        Args:
+            spark: Active SparkSession.
+        """
         self._spark = spark
         self._reader = Reader(spark)
         self._data_quality = DataQuality(spark)
@@ -62,7 +67,6 @@ class Processor:
         self._records_written: int = 0
         self._records_rejected: int = 0
 
-
     def run(
         self,
         source: SourceConfig,
@@ -70,13 +74,12 @@ class Processor:
         mode: str = "streaming",
         dataframe: Optional[DataFrame] = None,
     ) -> None:
-        """
-        Execute the full processing pipeline for a given source/target.
+        """Execute the full processing pipeline for a given source/target.
 
         Args:
             source: SourceConfig describing the source origin.
             target: TargetConfig describing the destination table.
-            mode: ``\"streaming\"`` (default) or ``\"batch\"``.
+            mode: ``"streaming"`` (default) or ``"batch"``.
             dataframe: Optional pre-read DataFrame. When provided in batch
                 mode, the Reader step is skipped and this DataFrame is used
                 directly.
@@ -188,14 +191,19 @@ class Processor:
                 for cached_frame in cached_frames:
                     cached_frame.unpersist()
 
-
     def _register_execution(
         self,
         status: str,
         elapsed_seconds: float,
         error_message: Optional[str] = None,
     ) -> None:
-        """Delegate execution registration to EtlControl."""
+        """Delegate execution registration to EtlControl.
+
+        Args:
+            status: Pipeline status ("success" or "failed").
+            elapsed_seconds: Total pipeline duration in seconds.
+            error_message: Error message if status is "failed".
+        """
         if not self._source or not self._target:
             return
         self._etl_control.register(
@@ -211,7 +219,11 @@ class Processor:
         )
 
     def _save_quality_metrics(self, status: str) -> None:
-        """Delegate quality metrics persistence to QualityMetrics."""
+        """Delegate quality metrics persistence to QualityMetrics.
+
+        Args:
+            status: Pipeline status ("success" or "failed").
+        """
         if not self._target:
             return
         self._quality_metrics.save(
@@ -222,8 +234,14 @@ class Processor:
             records_rejected=self._records_rejected,
         )
 
-
     @staticmethod
     def _is_streaming(df: DataFrame) -> bool:
-        """Check if the DataFrame is a streaming DataFrame."""
+        """Check if the DataFrame is a streaming DataFrame.
+
+        Args:
+            df: DataFrame to check.
+
+        Returns:
+            True if streaming, False otherwise.
+        """
         return df.isStreaming if hasattr(df, "isStreaming") else False

@@ -2,7 +2,7 @@
 DataQuality module — Validates, cleanses, and converts DataFrame columns
 according to the schema defined in the source configuration.
 
-Invalid records are isolated and written to a Rejected location.
+Invalid records are isolated and written to a centralized rejected records table.
 """
 
 from __future__ import annotations
@@ -43,7 +43,7 @@ class DataQuality:
     1. Type casting — convert columns to target Spark types
     2. Null check — reject rows with nulls in non-nullable fields
     3. Enum validation — reject rows with invalid values in enum columns
-    4. Timestamp parsing — ensure timestamp columns are valid
+    4. Timestamp parsing — ensure timestamp columns are valid (pass-through)
 
     Note: Duplicate removal is not performed here — it is delegated
     to the Delta MERGE operation in the Writer class.
@@ -69,8 +69,12 @@ class DataQuality:
     }
 
     def __init__(self, spark: SparkSession):
-        self._spark = spark
+        """Initialize the DataQuality validator.
 
+        Args:
+            spark: Active SparkSession.
+        """
+        self._spark = spark
 
     def validate(
         self,
@@ -78,8 +82,7 @@ class DataQuality:
         target: TargetConfig,
         source: Optional[SourceConfig] = None,
     ) -> Tuple[DataFrame, DataFrame]:
-        """
-        Apply all validation rules to the input DataFrame.
+        """Apply all validation rules to the input DataFrame.
 
         Args:
             df: Raw input DataFrame.
@@ -127,17 +130,23 @@ class DataQuality:
 
         return valid_df, combined_rejects
 
-
     def _cast_types(
         self,
         df: DataFrame,
         target: TargetConfig,
         source: Optional[SourceConfig] = None,
     ) -> Tuple[DataFrame, DataFrame]:
-        """
-        Cast columns to the types defined in the target schema.
+        """Cast columns to the types defined in the target schema.
 
-        Columns that fail casting are sent to rejects.
+        Columns that fail casting (produce null in non-nullable PK fields) are sent to rejects.
+
+        Args:
+            df: Input DataFrame.
+            target: TargetConfig with schema and primary_key.
+            source: Optional SourceConfig (not used here).
+
+        Returns:
+            Tuple of (valid DataFrame, rejected DataFrame).
         """
         if not target.schema:
             return df, self._empty_rejects()
@@ -183,7 +192,16 @@ class DataQuality:
         target: TargetConfig,
         source: Optional[SourceConfig] = None,
     ) -> Tuple[DataFrame, DataFrame]:
-        """Reject rows where non-nullable fields have null values."""
+        """Reject rows where non-nullable fields have null values.
+
+        Args:
+            df: Input DataFrame.
+            target: TargetConfig with schema defining nullable fields.
+            source: Optional SourceConfig (not used here).
+
+        Returns:
+            Tuple of (valid DataFrame, rejected DataFrame).
+        """
         non_nullable = [
             name for name, sf in target.schema.items()
             if not sf.nullable and name in df.columns
@@ -209,7 +227,18 @@ class DataQuality:
         target: TargetConfig,
         source: Optional[SourceConfig] = None,
     ) -> Tuple[DataFrame, DataFrame]:
-        """Reject rows where enum columns contain values outside the allowed set."""
+        """Reject rows where enum columns contain values outside the allowed set.
+
+        Nulls in enum columns are valid (nullable); only reject invalid non-null values.
+
+        Args:
+            df: Input DataFrame.
+            target: TargetConfig with enum_columns definition.
+            source: Optional SourceConfig (not used here).
+
+        Returns:
+            Tuple of (valid DataFrame, rejected DataFrame).
+        """
         if not target.enum_columns:
             return df, self._empty_rejects()
 
@@ -236,14 +265,20 @@ class DataQuality:
         target: TargetConfig,
         source: Optional[SourceConfig] = None,
     ) -> Tuple[DataFrame, DataFrame]:
-        """
-        Validate timestamp columns (reserved stage).
+        """Validate timestamp columns (reserved stage).
 
         Timestamp casting is already handled by ``_cast_types``, so this
         stage currently passes all rows through as valid.
+
+        Args:
+            df: Input DataFrame.
+            target: TargetConfig (not used here).
+            source: Optional SourceConfig (not used here).
+
+        Returns:
+            Tuple of (valid DataFrame, empty rejected DataFrame).
         """
         return df, self._empty_rejects()
-
 
     def _enrich_rejects(
         self,
@@ -251,7 +286,16 @@ class DataQuality:
         target: TargetConfig,
         rule: str,
     ) -> DataFrame:
-        """Add reject metadata columns to the rejected DataFrame."""
+        """Add reject metadata columns to the rejected DataFrame.
+
+        Args:
+            df: Rejected DataFrame.
+            target: TargetConfig for table name.
+            rule: Name of the validation rule that caused rejection.
+
+        Returns:
+            DataFrame with added metadata columns.
+        """
         if df.isEmpty():
             return df
 
@@ -279,10 +323,16 @@ class DataQuality:
             StructField("_reject_timestamp", TimestampType(), True),
         ])
 
-
     @staticmethod
     def _resolve_type(type_str: str):
-        """Resolve a schema type string to a Spark DataType instance."""
+        """Resolve a schema type string to a Spark DataType instance.
+
+        Args:
+            type_str: Type string from schema (e.g., "bigint", "decimal(10,7)").
+
+        Returns:
+            Spark DataType instance.
+        """
         type_lower = type_str.lower().split("(")[0]  # handle decimal(10,7)
         type_class = DataQuality.TYPE_MAP.get(type_lower)
         if type_class is None:

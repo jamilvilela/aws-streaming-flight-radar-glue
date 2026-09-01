@@ -2,11 +2,10 @@
 # S3 — Artifact Upload (scripts, dependencies, configs)
 #===============================================================================
 
-# ── Archive (helpers.zip) ──────────────────────────────────────────────────
+# Archive (helpers.zip)
 # Creates a zip of the Glue source package using hashicorp/archive provider.
 # The zip root contains the `src` package (src/__init__.py + src/dependencies/...)
 # so runtime imports resolve as `src.dependencies.<module>`.
-
 data "archive_file" "helpers" {
   type        = "zip"
   source_dir  = "${path.module}/../app/aws-glue/"
@@ -14,7 +13,7 @@ data "archive_file" "helpers" {
   excludes    = ["tests", "tests/**", "__pycache__", "**/__pycache__", "*.pyc", "**/*.pyc", "src/main.py"]
 }
 
-# ── S3 Artifact Upload ─────────────────────────────────────────────────────
+# S3 Artifact Upload
 # Uploads scripts, dependencies, and configs to the workspace bucket
 # using declarative aws_s3_object resources.
 

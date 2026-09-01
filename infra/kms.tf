@@ -2,8 +2,9 @@
 # KMS — Encryption Keys
 #===============================================================================
 
-# ── KMS Key for Glue encryption ──────────────────────────────────────────────
-
+# KMS Key for Glue encryption
+# Used for SSE-KMS (S3, CloudWatch) and CSE-KMS (job bookmarks) encryption.
+# Key rotation enabled, 30-day deletion window.
 resource "aws_kms_key" "glue" {
   description             = "KMS key for Glue Streaming Mini-Batch job encryption"
   deletion_window_in_days = 30
@@ -59,6 +60,7 @@ resource "aws_kms_key" "glue" {
   })
 }
 
+# KMS alias for easier reference
 resource "aws_kms_alias" "glue" {
   name          = local.kms_key_alias
   target_key_id = aws_kms_key.glue.key_id

@@ -6,7 +6,7 @@ description: Specialized agents for implementing the Glue Job streaming mini-bat
 # Agents — Glue Streaming Mini-Batch DMS CDC
 
 ## Agent: `glue-job-builder`
-**Purpose:** Implement Glue Job PySpark code (main.py, processor, config, reader, data_quality, writer, etl_control, quality_metrics)
+**Purpose:** Implement Glue Job PySpark code (main.py, processor, config, reader, data_quality, writer, etl_control, quality_metrics, rejected_records)
 
 **Skills:**
 - PySpark 4.0 / AWS Glue 5.0 (pure Spark — no GlueContext, DynamicFrame or Job)
@@ -80,6 +80,17 @@ in app/aws-glue/src/dependencies/{file_name}.py with the following requirements:
 - Source kept in `app/aws-lambda/start_workflow/` (outside `app/aws-glue/src/`)
 - Deployed via `infra/lambda.tf` and uploaded to `aws-lambda/flight-radar/start_workflow/`
 
+## Agent: `rejected-records-designer`
+**Purpose:** Design and implement centralized rejected records handling
+
+**Skills:**
+- Single table for all entities (`db_raw.rejected_records`)
+- JSON payload column for schema-flexible rejected record storage
+- Partitioned by reference_date for query performance
+- Append-only write to S3 with partitionBy (no merge)
+- Resolved through Glue Data Catalog
+- Glue Catalog partition updates via `update_table_partitions`
+
 ## How to use
 
 ### To generate code for a specific class:
@@ -110,4 +121,10 @@ for the flight_radar destination schemas.
 ```
 @test-builder Create unit tests for the DataQuality class 
 with SparkSession mock, covering type validation, enums and rejects.
+```
+
+### To implement rejected records:
+```
+@rejected-records-designer Create the RejectedRecords class 
+with centralized table write and JSON payload.
 ```

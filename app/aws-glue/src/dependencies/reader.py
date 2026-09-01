@@ -37,21 +37,19 @@ class Reader:
 
     Supports:
     - Streaming reads via Spark readStream with S3 checkpointing
+    - Batch reads via Spark read for full-load processing
     """
 
     def __init__(self, spark: SparkSession):
-        """
-        Initialize the Reader.
+        """Initialize the Reader.
 
         Args:
             spark: Active SparkSession.
         """
         self._spark = spark
 
-
     def read(self, source: SourceConfig, mode: str = "streaming") -> DataFrame:
-        """
-        Read data from the configured source.
+        """Read data from the configured source.
 
         In ``streaming`` mode (default) uses Spark ``readStream`` with
         checkpoint-based fault-tolerance, reading from
@@ -73,9 +71,18 @@ class Reader:
             return self._read_batch(source)
         return self._read_streaming(source)
 
-
     def _read_batch(self, source: SourceConfig) -> DataFrame:
-        """Read all existing data from source location as a static DataFrame."""
+        """Read all existing data from source location as a static DataFrame.
+
+        Args:
+            source: SourceConfig with source_location and optional filter.
+
+        Returns:
+            Static DataFrame with all full-load data.
+
+        Raises:
+            ReaderError: If the batch read fails.
+        """
         try:
             df = (
                 self._spark.read
@@ -93,7 +100,14 @@ class Reader:
 
     @staticmethod
     def _to_spark_schema(target_schema: Dict[str, SchemaField]) -> StructType:
-        """Convert target schema dict to Spark StructType."""
+        """Convert target schema dict to Spark StructType.
+
+        Args:
+            target_schema: Dictionary mapping column names to SchemaField.
+
+        Returns:
+            Spark StructType for the schema.
+        """
         type_map = {
             "bigint": LongType(),
             "int": LongType(),
@@ -117,8 +131,7 @@ class Reader:
         return StructType(fields)
 
     def _read_streaming(self, source: SourceConfig) -> DataFrame:
-        """
-        Read data in streaming mode using Spark readStream.
+        """Read data in streaming mode using Spark readStream.
 
         Uses ``cdc_source_location`` — the CDC-only prefix. The source path
         must be a base directory (no directory-level globs): Spark's
@@ -130,6 +143,15 @@ class Reader:
         CDC files; processed files are moved to ``archive_location``
         (must live OUTSIDE the source path, otherwise archived files are
         re-discovered on the next trigger).
+
+        Args:
+            source: SourceConfig with CDC and checkpoint locations.
+
+        Returns:
+            Streaming DataFrame for the CDC source.
+
+        Raises:
+            ReaderError: If the streaming read fails.
         """
         cdc_path = source.cdc_source_location or source.source_location
         archive_path = source.archive_location.rstrip("/") + "/"

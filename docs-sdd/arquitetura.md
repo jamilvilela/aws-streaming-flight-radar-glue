@@ -1,35 +1,49 @@
-**Summary:** **Technical document ready for data engineers** detailing AWS architecture (medallion), batch/CDC/streaming flows, DDL examples, Glue job, minimal IAM policy and Terraform snippet; **date:** 28-06-2026; **version:** v2.0.
+---
+id: arquitetura-glue-streaming-dms-cdc
+title: Arquitetura — AWS Data Lakehouse para Flight Radar
+status: approved
+version: 2.0
+created: 2026-06-28
+updated: 2026-08-31
+author: Data Engineering Team
+---
 
-# AWS Data Architecture — Technical Detail for Data Engineers  
+# AWS Data Architecture — Technical Detail for Data Engineers
+
 **Author:** Jamil  
 **Date:** 28-06-2026  
 **Version:** v2.0
 
 ## 1 Executive Overview
+
 **Objective:** AWS Data Lakehouse platform that supports hybrid ingestion (batch, CDC, streaming), layered curation (Landing → Bronze → Silver → Gold → Workspace) and consumption by BI/ML. **Audience:** data engineers responsible for implementation and operation.
 
 ## 2 Components and Responsibilities
-- **Sources:** RDBMS (CDC), legacy files, SaaS APIs, apps/sites.  
-- **Connectors:** DMS (CDC), Transfer Family (SFTP), AppFlow, API Gateway + Lambda, EventBridge.  
-- **Ingestion:** Kinesis / Firehose, MSK (Kafka), Flink (KDA).  
-- **Lakehouse (S3):** **Landing**, **Bronze**, **Silver**, **Gold**, **Workspace**.  
-- **Processing:** Glue (batch/streaming), EMR (Spark for >10TB), Databricks (notebooks/Delta).  
-- **Governance:** DataZone, Glue Data Catalog, Lake Formation.  
-- **Consumption:** Redshift, Athena, SageMaker, APIs.  
+
+- **Sources:** RDBMS (CDC), legacy files, SaaS APIs, apps/sites.
+- **Connectors:** DMS (CDC), Transfer Family (SFTP), AppFlow, API Gateway + Lambda, EventBridge.
+- **Ingestion:** Kinesis / Firehose, MSK (Kafka), Flink (KDA).
+- **Lakehouse (S3):** **Landing**, **Bronze**, **Silver**, **Gold**, **Workspace**.
+- **Processing:** Glue (batch/streaming), EMR (Spark for >10TB), Databricks (notebooks/Delta).
+- **Governance:** DataZone, Glue Data Catalog, Lake Formation.
+- **Consumption:** Redshift, Athena, SageMaker, APIs.
 - **Security/Observability:** IAM, KMS, Secrets Manager, CloudWatch, DataDog, Terraform (IaC).
 
 ## 3 Flows and Patterns
-- **Batch:** Transfer → S3 Landing → Glue Batch/EMR → Bronze → Silver → Gold.  
-- **CDC:** RDBMS → DMS → MSK/Kinesis → stream processors → Bronze→Silver.  
-- **Streaming:** App/API → API Gateway/Lambda → Kinesis → Flink/Glue Streaming → Bronze.  
+
+- **Batch:** Transfer → S3 Landing → Glue Batch/EMR → Bronze → Silver → Gold.
+- **CDC:** RDBMS → DMS → MSK/Kinesis → stream processors → Bronze→Silver.
+- **Streaming:** App/API → API Gateway/Lambda → Kinesis → Flink/Glue Streaming → Bronze.
 **Patterns:** medallion pattern; event-driven; CDC with idempotency; schema evolution via Glue Catalog.
 
 ## 4 Modeling and Best Practices
-- **Partitioning:** `ingestion_date` and `event_date`.  
-- **Format:** **Parquet** + **Snappy** (batch) / **Delta Lake** (streaming CDC).  
+
+- **Partitioning:** `ingestion_date` and `event_date`.
+- **Format:** **Parquet** + **Snappy** (batch) / **Delta Lake** (streaming CDC).
 - **Practices:** partition pruning, periodic compaction, small-file mitigation, Delta MERGE for cross-batch dedup.
 
 **DDL Example (Gold)**
+
 ```sql
 CREATE TABLE gold.events (
   event_id STRING,
@@ -45,6 +59,7 @@ STORED AS PARQUET;
 ```
 
 ## 5 Glue Job Examples (PySpark)
+
 ```python
 from pyspark.sql import SparkSession
 
@@ -54,9 +69,10 @@ spark = SparkSession.builder \
     .getOrCreate()
 
 df = spark.readStream.format("parquet") \
-    .option("maxFilesPerTrigger", 1) \
+    .option("maxFilesPerTrigger", 1000) \
     .option("cleanSource", "archive") \
-    .option("includeExistingFiles", False) \
+    .option("includeExistingFiles", "true") \
+    .option("sourceArchiveDir", "s3://bucket/archive/") \
     .load("s3://bucket/landing/flights_cdc/")
 
 def write_batch(df, epoch_id):
@@ -64,36 +80,43 @@ def write_batch(df, epoch_id):
     writer.write(df, target, source)
 
 df.writeStream \
-    .trigger(processingTime="60 seconds") \
+    .trigger(processingTime="5 minutes") \
     .foreachBatch(write_batch) \
     .option("checkpointLocation", "s3://bucket/checkpoints/flights/") \
     .start() \
     .awaitTermination()
 ```
-**Idempotency:** Delta MERGE based on composite PK (via `cod_unico`) to ensure cross-batch uniqueness (no need for `dropDuplicates`).
+
+**Idempotency:** Delta MERGE based on composite PK (via `cod_unique`) to ensure cross-batch uniqueness (no need for `dropDuplicates`).
 
 ## 6 Orchestration and Observability
-- **Orchestration:** Airflow (DAGs), EventBridge, Step Functions.  
-- **Essential metrics:** throughput, consumer lag, job duration, data quality score.  
+
+- **Orchestration:** Airflow (DAGs), EventBridge, Step Functions, Glue Workflows + Triggers.
+- **Essential metrics:** throughput, consumer lag, job duration, data quality score.
 - **Alerts:** lag > threshold, job failures, quality regression; integrate PagerDuty/Slack.
 
 ## 7 Security and Governance
-- **IAM least-privilege**, **SSE‑KMS**, Secrets Manager, Lake Formation for column/row control.  
+
+- **IAM least-privilege**, **SSE‑KMS**, Secrets Manager, Lake Formation for column/row control.
 - **PII Masking** in Silver layer; retention and audit policies via CloudTrail.
 
 ## 8 SLAs, Costs and Optimizations
-- **Streaming SLA:** <30s end‑to‑end; **daily batch:** 2–4h.  
+
+- **Streaming SLA:** <30s end‑to‑end; **daily batch:** 2–4h.
 - **Optimizations:** lifecycle (Landing 30d → Glacier), spot instances EMR, partition pruning, compaction.
 
 ## 9 Risks and Recommendations
+
 - Mitigate single-point-of-failure in topics; implement DLQs, exponential retries, canary jobs; IaC mandatory.
 
 ## 10 Roadmap (phases)
+
 1. Foundations (S3, KMS, Catalog). 2. Batch ingestion. 3. Streaming + CDC. 4. Silver/Gold curation. 5. Consumption and ML. 6. Observability and cost.
 
 ## Appendices
 
 **Minimal IAM policy (Glue job)**
+
 ```json
 {
   "Version":"2012-10-17",
@@ -106,6 +129,7 @@ df.writeStream \
 ```
 
 **Terraform snippet (S3 + lifecycle + KMS)**
+
 ```hcl
 resource "aws_kms_key" "data" { description = "S3 KMS key" }
 resource "aws_s3_bucket" "data" { bucket = "my-bucket" }
@@ -120,7 +144,7 @@ resource "aws_s3_bucket_lifecycle_configuration" "lc" {
 }
 ```
 
-**Fluxo da Solução (Mermaid)**
+## 11 Solution Flow — Flight Radar CDC Pipeline (Mermaid)
 
 ```mermaid
 flowchart TD
@@ -138,7 +162,7 @@ flowchart TD
     READER["Reader"]
     DQ["DataQuality<br/>(4 estágios)"]
     WRITER["Writer<br/>(Delta MERGE por PK)"]
-    REJ["Rejected/ (Parquet)"]
+    REJ["RejectedRecords<br/>(Parquet centralizado)"]
     RAW["S3 Raw<br/>tabelas Delta (db_raw)"]
     ETL["EtlControl"]
     QM["QualityMetrics"]
@@ -164,7 +188,7 @@ flowchart TD
     DQ -.-> QM
 ```
 
-**Fluxo de Eventos (Mermaid)**
+## 12 Event Flow (Mermaid)
 
 ```mermaid
 sequenceDiagram
@@ -195,5 +219,67 @@ sequenceDiagram
     end
 ```
 
----  
+## 13 Pipeline Internal Flow (Mermaid)
+
+```mermaid
+flowchart TD
+    MAIN["main.py"]
+    PROC["Processor.run(source, target)"]
+    CONFIG["1. Config.from_s3(path) → SourceConfig"]
+    READER["2. Reader.read(source, mode) → raw DataFrame"]
+    DQ["3. DataQuality.validate(df, target, source) → (valid_df, rejects_df)"]
+    REJ["4. RejectedRecords.write(rejects_df, ...)"]
+    WRITE["5. Writer.write(valid_df, target, source) → Delta MERGE by PK"]
+    ETL["6. EtlControl.register(...)"]
+    QM["7. QualityMetrics.save(...)"]
+
+    MAIN --> PROC
+    PROC --> CONFIG
+    CONFIG --> READER
+    READER --> DQ
+    DQ --> REJ
+    DQ --> WRITE
+    WRITE --> ETL
+    ETL --> QM
+```
+
+## 14 Data Lake Layer Mapping
+
+| Layer | Bucket | Database | Format | Purpose |
+|-------|--------|----------|--------|---------|
+| Landing | `lakehouse-landing-{account_id}` | — | Parquet (DMS) | Raw DMS CDC output |
+| Raw (Bronze) | `lakehouse-raw-{account_id}` | `db_raw` | **Delta Lake** / Parquet (rejects) | Validated, partitioned, cataloged |
+| Workspace | `lakehouse-workspace-{account_id}` | — | Scripts, configs, checkpoints | Job artifacts, configs, checkpoints |
+
+## 15 Tables in Raw Layer (db_raw)
+
+| Table | Partition | Primary Key | Format | Description |
+|-------|-----------|-------------|--------|-------------|
+| `fr_aircraft` | `event_date` | `icao24` | Delta | Aircraft registry |
+| `fr_airports` | `event_date` | `icao_code` | Delta | Airports |
+| `fr_airlines` | `event_date` | `icao_code` | Delta | Airlines |
+| `fr_flights` | `event_date` (from `scheduled_departure`) | `flight_id` | Delta | Flights fact table |
+| `fr_aircraft_positions` | `aircraft_icao24` | `position_id`, `recorded_at` | Delta | Positions (high volume) |
+| `fr_countries` | `event_date` | `id` | Delta | Countries |
+| `fr_aircraft_types` | `event_date` | `icao_code` | Delta | Aircraft types |
+| `fr_routes` | `event_date` | `id` | Delta | Routes |
+| `etl_control` | `reference_date` | — | Parquet | Execution control |
+| `data_quality_metrics` | `reference_date` | — | Parquet | Quality metrics |
+| `rejected_records` | `reference_date` | — | Parquet | Centralized rejected records |
+
+## 16 Deployment Structure (Workspace Bucket)
+
+```
+lakehouse-workspace-{account_id}/
+├── aws-glue/jobs/flight-radar/src/
+│   ├── main.py
+│   └── dependencies/
+│       ├── helpers.zip
+│       └── config/config.json
+└── aws-lambda/flight-radar/start_workflow/
+    └── start_glue_job.py
+```
+
+---
+
 **Fim do documento.** Salve como `arquitetura-aws-detalhamento-engenheiros.md`.

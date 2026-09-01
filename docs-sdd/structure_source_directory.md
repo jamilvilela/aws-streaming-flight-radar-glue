@@ -1,3 +1,5 @@
+# Structure of the Landing Bucket
+
 Here is the complete structure of the `lakehouse-landing-${local.account_id}` bucket in tree format:
 
 ```
@@ -111,7 +113,7 @@ lakehouse-landing-${local.account_id}/
 │                           ├── 20260622-224614617.parquet
 │                           └── 20260622-224724746.parquet
 │
-│           └── * _cdc/ (CDC streaming, via CdcPath — e.g. aircraft_cdc/, flights_cdc/)
+│           └── *_cdc/ (CDC streaming, via CdcPath — e.g. aircraft_cdc/, flights_cdc/)
 │               └── 2026/
 │                   └── 06/
 │                       ├── 21/
@@ -178,7 +180,7 @@ lakehouse-landing-${local.account_id}/
 
 ---
 
-### Summary
+## Summary
 
 | Path | Total Objects |
 |---|---|
@@ -192,3 +194,20 @@ lakehouse-landing-${local.account_id}/
 - The `dms/flightradar/flight_radar/` folder contains **DMS CDC Streaming** data in **Parquet** format, with initial load files (`LOAD...`) and incremental files partitioned by date (`2026/06/21` and `22`). Each table also has a dedicated `*_cdc/` prefix written by DMS via the `CdcPath` parameter — the streaming job reads only these prefixes.
 - The `opensky/flights-enriched-raw/` folder contains **Glue ETL** output (likely) with enriched data in partitioned text format.
 - The `opensky/flights/` folder contains raw **OpenSky Network** data ingested via **Firehose** in **JSON** format, hierarchically partitioned by `year=.../month=.../day=.../hour=...`.
+
+## Config.json Path Mapping
+
+The `config.json` maps each table to its respective paths:
+
+| Table | source_location (batch) | cdc_source_location (streaming) | archive_location | checkpoint_location |
+|-------|------------------------|--------------------------------|------------------|---------------------|
+| aircraft | `.../aircraft/LOAD*.parquet` | `.../aircraft/2*/*/*/*/*.parquet` | `.../aircraft_archive/` | `.../checkpoints/aircraft/` |
+| airports | `.../airports/LOAD*.parquet` | `.../airports/2*/*/*/*/*.parquet` | `.../airports_archive/` | `.../checkpoints/airports/` |
+| airlines | `.../airlines/LOAD*.parquet` | `.../airlines/2*/*/*/*/*.parquet` | `.../airlines_archive/` | `.../checkpoints/airlines/` |
+| flights | `.../flights/LOAD*.parquet` | `.../flights/2*/*/*/*/*.parquet` | `.../flights_archive/` | `.../checkpoints/flights/` |
+| aircraft_positions | `.../aircraft_positions_2026_*/LOAD*.parquet` | `.../aircraft_positions_2*/2*/*/*/*/*.parquet` | `.../aircraft_positions_archive/` | `.../checkpoints/aircraft_positions/` |
+| countries | `.../countries/LOAD*.parquet` | `.../countries/2*/*/*/*/*.parquet` | `.../countries_archive/` | `.../checkpoints/countries/` |
+| aircraft_types | `.../aircraft_types/LOAD*.parquet` | `.../aircraft_types/2*/*/*/*/*.parquet` | `.../aircraft_types_archive/` | `.../checkpoints/aircraft_types/` |
+| routes | `.../routes/LOAD*.parquet` | `.../routes/2*/*/*/*/*.parquet` | `.../routes_archive/` | `.../checkpoints/routes/` |
+
+The `{account_id}` placeholder is resolved at deploy time by Terraform (`infra/s3.tf`).
