@@ -73,12 +73,13 @@ class RejectedRecords:
             logger.info("No rejected records to write for %s", target.table)
             return
 
-        # Handle test environment where Spark may not be fully initialized
-        # In tests with MagicMock, Spark functions won't work
+        # Handle test environments where Spark is not fully initialized.
+        # Spark 4.1 removed the private _instantiatedContext attribute, so use
+        # the public active-session API instead of relying on a private field.
         try:
-            from pyspark.sql import SparkSession
-            if SparkSession._instantiatedContext is None:
-                logger.warning("SparkContext not available, skipping rejected records write (test mode)")
+            active_session = SparkSession.getActiveSession()
+            if active_session is None:
+                logger.warning("SparkSession not active, skipping rejected records write (test mode)")
                 return
         except Exception:
             pass

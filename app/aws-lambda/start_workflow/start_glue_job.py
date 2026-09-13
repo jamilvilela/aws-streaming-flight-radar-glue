@@ -14,6 +14,7 @@ ARN) guarantees a single start.
 """
 
 import json
+import logging
 import os
 from typing import Optional
 
@@ -26,6 +27,9 @@ dms = boto3.client("dms")
 WORKFLOW_NAME = os.environ.get("GLUE_WORKFLOW_NAME", "glue-flight-radar-batch-workflow")
 DMS_CONFIG_ARN = os.environ.get("DMS_REPLICATION_CONFIG_ARN", "")
 LOCK_TABLE = os.environ.get("DMS_WORKFLOW_LOCK_TABLE", "glue-flight-radar-workflow-lock")
+
+logger = logging.getLogger()
+logger.setLevel(logging.INFO)
 
 _FULL_LOAD_DONE = {
     "status": "ok",
@@ -40,17 +44,26 @@ def _find_replication() -> Optional[dict]:
         Replication dict if found, None otherwise.
     """
     if DMS_CONFIG_ARN:
+        logger.info("Looking up DMS replication by ReplicationConfigArn=%s", DMS_CONFIG_ARN)
         resp = dms.describe_replications(
             Filters=[{"Name": "replication-config-arn", "Values": [DMS_CONFIG_ARN]}]
         )
         replications = resp.get("Replications", [])
-        return replications[0] if replications else None
+        if replications:
+            logger.info("Found DMS replication for ReplicationConfigArn=%s", DMS_CONFIG_ARN)
+            return replications[0]
+        logger.warning("No DMS replication found for ReplicationConfigArn=%s", DMS_CONFIG_ARN)
+        return None
+
+    logger.info("No DMS replication ARN configured; listing available replications")
     replications = dms.describe_replications().get("Replications", [])
     if len(replications) == 1:
+        logger.info("Found single DMS replication available: %s", replications[0].get("ReplicationConfigArn"))
         return replications[0]
     if len(replications) > 1:
-        print("DMS_REPLICATION_CONFIG_ARN not set and multiple replications "
-              "exist — configure the variable to disambiguate")
+        logger.warning(
+            "DMS_REPLICATION_CONFIG_ARN not set and multiple replications exist — configure the variable to disambiguate"
+        )
     return None
 
 
@@ -101,24 +114,39 @@ def lambda_handler(event: dict, context: object) -> dict:
     Returns:
         Response dict with statusCode and body.
     """
+    logger.info("Starting Lambda execution for Glue workflow starter")
+    logger.info("Event payload: %s", json.dumps(event, default=str))
+
     replication = _find_replication()
     if replication is None:
-        print("No DMS Serverless replication found — skipping")
+        logger.warning("No DMS Serverless replication found — skipping workflow start")
         return {"statusCode": 200, "body": json.dumps({"message": "no replication found"})}
 
-    config_arn = replication["ReplicationConfigArn"]
+    config_arn = replication.get("ReplicationConfigArn") or "unknown"
+    logger.info(
+        "DMS replication identified: config_arn=%s, status=%s",
+        config_arn,
+        replication.get("Status"),
+    )
+
     if not _full_load_complete(replication):
-        print(f"Full load not complete for {config_arn} — status={replication.get('Status')}")
+        logger.info(
+            "Full load not complete for %s — status=%s, replication_stats=%s",
+            config_arn,
+            replication.get("Status"),
+            replication.get("ReplicationStats"),
+        )
         return _FULL_LOAD_DONE
 
+    logger.info("Full load is complete for %s; attempting to acquire workflow lock", config_arn)
     if not _acquire_lock(config_arn):
-        print(f"Workflow already started for {config_arn} — skipping")
+        logger.info("Workflow already started for %s — skipping duplicate execution", config_arn)
         return _FULL_LOAD_DONE
 
     try:
         response = glue.start_workflow_run(Name=WORKFLOW_NAME)
         run_id = response["RunId"]
-        print(f"Started Glue workflow '{WORKFLOW_NAME}' — run ID: {run_id}")
+        logger.info("Started Glue workflow '%s' — run ID: %s", WORKFLOW_NAME, run_id)
         return {
             "statusCode": 200,
             "body": json.dumps({
@@ -126,6 +154,6 @@ def lambda_handler(event: dict, context: object) -> dict:
                 "runId": run_id,
             }),
         }
-    except Exception as e:
-        print(f"Failed to start Glue workflow '{WORKFLOW_NAME}': {e}")
+    except Exception as exc:
+        logger.exception("Failed to start Glue workflow '%s'", WORKFLOW_NAME)
         raise

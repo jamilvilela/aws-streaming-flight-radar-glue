@@ -17,7 +17,7 @@ resource "aws_lambda_function" "glue_starter" {
   function_name    = "${local.glue_full_load_job_name}-starter"
   role             = aws_iam_role.lambda_glue_starter.arn
   handler          = "start_glue_job.lambda_handler"
-  runtime          = "python3.9"
+  runtime          = "python3.10"
   timeout          = 30
 
   environment {

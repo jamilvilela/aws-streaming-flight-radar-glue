@@ -45,12 +45,12 @@ resource "aws_glue_connection" "vpc" {
 }
 
 # Glue Job — Full-Load Batch
-# Processes all tables sequentially (--mode=batch). Uses Glue 5.0, Python 3.9,
+# Processes all tables sequentially (--mode=batch). Uses Glue 6.0, Python 3,
 # FLEX execution class for cost optimization. Delta Lake support via --datalake-formats.
 resource "aws_glue_job" "full_load_batch" {
   name              = local.glue_full_load_job_name
   role_arn          = aws_iam_role.glue_job.arn
-  glue_version      = "5.0"
+  glue_version      = "6.0"
   worker_type       = var.full_load_worker_type
   number_of_workers = var.full_load_number_of_workers
   timeout           = var.glue_job_timeout
@@ -60,7 +60,7 @@ resource "aws_glue_job" "full_load_batch" {
 
   command {
     script_location = local.script_location
-    python_version  = "3.9"
+    python_version  = "3"
   }
 
   default_arguments = {
@@ -100,11 +100,11 @@ resource "aws_glue_job" "full_load_batch" {
 
 # Glue Job — Streaming CDC
 # Runs continuous streaming with one concurrent query per table (--mode=streaming).
-# Uses Glue 5.0, Python 3.9, FLEX execution class. Delta Lake support enabled.
+# Uses Glue 6.0, Python 3, FLEX execution class. Delta Lake support enabled.
 resource "aws_glue_job" "streaming_minibatch" {
   name              = local.glue_streaming_job_name
   role_arn          = aws_iam_role.glue_job.arn
-  glue_version      = "5.0"
+  glue_version      = "6.0"
   worker_type       = var.streaming_worker_type
   number_of_workers = var.streaming_number_of_workers
   timeout           = var.glue_job_timeout
@@ -114,7 +114,7 @@ resource "aws_glue_job" "streaming_minibatch" {
 
   command {
     script_location = local.script_location
-    python_version  = "3.9"
+    python_version  = "3"
   }
 
   default_arguments = {

@@ -183,8 +183,10 @@ class Reader:
                     logger.warning(
                         "Schema inference failed (%s), falling back to target schema", infer_exc
                     )
-            reader = self._spark.readStream.format("parquet").options(**options)
-            if schema is not None:
+            reader = self._spark.readStream.format("parquet")
+            for option_name, option_value in options.items():
+                reader = reader.option(option_name, option_value)
+            if schema is not None and len(schema.fields) > 0:
                 reader = reader.schema(schema)
             stream_df = reader.load(cdc_path)
             if source.filter:

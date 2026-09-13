@@ -36,7 +36,7 @@ class AwsHelper:
 
         helper = AwsHelper(region="us-east-1")
         df = helper.run_athena_query(spark, "SELECT * FROM table")
-helper.move_s3_objects(
+        helper.move_s3_objects(
             source_bucket="src",
             source_prefix="input/",
             dest_bucket="dst",

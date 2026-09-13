@@ -15,16 +15,16 @@
 # validação de VPC do Glue. Um endpoint S3 Gateway atende todo o tráfego S3
 # do VPC (landing/raw/workspace/trusted/business) e também o script do job.
 
-resource "aws_vpc_endpoint" "s3" {
-  vpc_id            = data.aws_vpc.default.id
-  service_name      = "com.amazonaws.${var.region}.s3"
-  vpc_endpoint_type = "Gateway"
-  route_table_ids   = [data.aws_vpc.default.main_route_table_id]
+# resource "aws_vpc_endpoint" "s3" {
+#   vpc_id            = data.aws_vpc.default.id
+#   service_name      = "com.amazonaws.${var.region}.s3"
+#   vpc_endpoint_type = "Gateway"
+#   route_table_ids   = [data.aws_vpc.default.main_route_table_id]
 
-  tags = merge(local.common_tags, {
-    Name = "${var.glue_job_name}-s3-endpoint"
-  })
-}
+#   tags = merge(local.common_tags, {
+#     Name = "${var.glue_job_name}-s3-endpoint"
+#   })
+# }
 
 # Os workers do Glue também precisam alcançar o STS e o Glue Data Catalog:
 # o client factory do catálogo (AWSGlueDataCatalogHiveClientFactory) resolve
